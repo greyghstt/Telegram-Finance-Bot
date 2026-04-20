@@ -52,11 +52,15 @@ Local polling bot
 
 ## Production Resources
 
-- Production URL: `https://telegram-finance-bot.vercel.app`
+- Production URL: `https://keuangan-telegram.vercel.app`
 - Webhook URL:
-  `https://telegram-finance-bot.vercel.app/api/telegram/webhook`
+  `https://keuangan-telegram.vercel.app/api/telegram/webhook`
 - GitHub repository: `https://github.com/greyghstt/telegram-finance-bot`
 - Vercel project: `telegram-finance-bot`
+- Note: the public production domain remains `keuangan-telegram.vercel.app`
+  because the shorter English `telegram-finance-bot.vercel.app` alias is not
+  available, and generated Vercel aliases are protected by Vercel
+  Authentication.
 - Supabase region: Oceania/Sydney
 - Vercel function region: `syd1`
 
@@ -207,7 +211,7 @@ vercel.cmd deploy --prod --yes
 Reset webhook:
 
 ```powershell
-$env:TELEGRAM_WEBHOOK_URL="https://telegram-finance-bot.vercel.app/api/telegram/webhook"
+$env:TELEGRAM_WEBHOOK_URL="https://keuangan-telegram.vercel.app/api/telegram/webhook"
 npm.cmd run setup:webhook
 ```
 

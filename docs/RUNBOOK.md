@@ -34,14 +34,14 @@ node -e "import('dotenv/config').then(async()=>{const r=await fetch('https://api
 Look for:
 
 - `url` should be
-  `https://telegram-finance-bot.vercel.app/api/telegram/webhook`.
+  `https://keuangan-telegram.vercel.app/api/telegram/webhook`.
 - `pending_update_count` should be small or `0`.
 - `last_error_message` should be `null`.
 
 ## Check Vercel Logs
 
 ```powershell
-vercel.cmd logs https://telegram-finance-bot.vercel.app
+vercel.cmd logs https://keuangan-telegram.vercel.app
 ```
 
 Use this when Telegram does not reply or an endpoint returns 500.
@@ -50,7 +50,7 @@ Use this when Telegram does not reply or an endpoint returns 500.
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "https://telegram-finance-bot.vercel.app/database/status" `
+  -Uri "https://keuangan-telegram.vercel.app/database/status" `
   -Headers @{"x-admin-api-token"=$env:ADMIN_API_TOKEN}
 ```
 
@@ -82,7 +82,7 @@ If you change `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
 4. Reset the Telegram webhook:
 
 ```powershell
-$env:TELEGRAM_WEBHOOK_URL="https://telegram-finance-bot.vercel.app/api/telegram/webhook"
+$env:TELEGRAM_WEBHOOK_URL="https://keuangan-telegram.vercel.app/api/telegram/webhook"
 npm.cmd run setup:webhook
 ```
 
