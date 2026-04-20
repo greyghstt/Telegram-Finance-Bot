@@ -115,7 +115,8 @@ const CATEGORY_RULES = [
     category: "groceries",
     keywords: [
       "alfamart",
-      "alfamid",
+      "alfamidi",
+      "minimarket",
       "indomaret",
       "superindo",
       "hypermart",

@@ -42,7 +42,7 @@ The script simulates this chat flow:
 +2jt gaji bca
 -20k bensin
 -makan ayam 27rb via qris #kantin
-1. -12k alfamid
+1. -12k minimarket
 2. -8rb parkir
 3. +100k refund
 saldo
