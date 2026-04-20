@@ -27,8 +27,8 @@ const database = openDatabase(databasePath);
 await initializeDatabase(database);
 
 try {
-  console.log("Keuangan Telegram - Local Chat Scenario");
-  console.log("Database sementara:", databasePath);
+  console.log("Telegram Finance Bot - Local Chat Scenario");
+  console.log("Temporary database:", databasePath);
   console.log("=".repeat(48));
 
   const results = [];
@@ -37,7 +37,7 @@ try {
     const result = await handleMessage(database, message);
     results.push(result);
 
-    console.log(`\nKamu:\n${message}`);
+    console.log(`\nYou:\n${message}`);
     console.log("\nBot:");
     console.log(result.reply);
     console.log("-".repeat(48));
@@ -48,8 +48,8 @@ try {
   assert.equal(finalBalance, 1953000);
   assert.equal(results.every((result) => result.ok), true);
 
-  console.log("\nSemua skenario lokal berhasil.");
-  console.log(`Saldo akhir setelah hapus terakhir: ${finalBalance}`);
+  console.log("\nAll local chat scenarios passed.");
+  console.log(`Final balance after deleting the latest transaction: ${finalBalance}`);
 } finally {
   database.close();
   cleanupDatabase();

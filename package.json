@@ -1,9 +1,9 @@
 {
-  "name": "keuangan-telegram",
+  "name": "telegram-finance-bot",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "Bot Telegram pribadi untuk mencatat pemasukan dan pengeluaran.",
+  "description": "A private Telegram bot for tracking income and expenses.",
   "type": "module",
   "scripts": {
     "dev": "node --watch src/server.js",

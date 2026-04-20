@@ -125,7 +125,7 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
   const result = await handleMessage(database, effectiveText);
 
   if (result.command === "export" && result.csv) {
-    await sendTelegramDocument(token, chatId, result.filename ?? "keuangan-telegram.csv", result.csv, {
+    await sendTelegramDocument(token, chatId, result.filename ?? "telegram-finance-bot.csv", result.csv, {
       caption: result.reply,
       replyMarkup: mainKeyboard,
     });

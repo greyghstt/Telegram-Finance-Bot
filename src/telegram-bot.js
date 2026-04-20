@@ -26,7 +26,7 @@ let running = true;
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-console.log("Keuangan Telegram bot berjalan.");
+console.log("Telegram Finance Bot polling is running.");
 if (allowedChatIds.size > 0) {
   console.log(`Akses dibatasi untuk ${allowedChatIds.size} chat ID.`);
 } else {
@@ -75,9 +75,9 @@ async function setupPollingMode() {
 async function configureMenuSafely() {
   try {
     await configureTelegramMenu(token);
-    console.log("Menu command Telegram sudah dikonfigurasi.");
+    console.log("Telegram command menu configured.");
   } catch (error) {
-    console.warn("Menu command Telegram belum bisa dikonfigurasi:", error.message);
+    console.warn("Telegram command menu could not be configured:", error.message);
   }
 }
 
@@ -106,5 +106,5 @@ function sleep(ms) {
 
 function shutdown() {
   running = false;
-  console.log("\nMenghentikan bot Telegram...");
+  console.log("\nStopping Telegram Finance Bot...");
 }

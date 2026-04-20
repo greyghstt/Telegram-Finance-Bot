@@ -1,7 +1,7 @@
 import "dotenv/config";
 
 const productionUrl = stripTrailingSlash(
-  process.env.PRODUCTION_URL ?? "https://keuangan-telegram.vercel.app",
+  process.env.PRODUCTION_URL ?? "https://telegram-finance-bot.vercel.app",
 );
 
 const checks = [];

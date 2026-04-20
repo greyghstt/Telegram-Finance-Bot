@@ -387,7 +387,7 @@ async function buildExportResponse(database) {
     ok: true,
     kind: "command",
     command: "export",
-    filename: `keuangan-telegram-${generatedAt.slice(0, 10)}.csv`,
+    filename: `telegram-finance-bot-${generatedAt.slice(0, 10)}.csv`,
     csv: [header, ...rows].join("\n"),
     reply: [
       "Export CSV siap.",
