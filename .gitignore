@@ -1,0 +1,10 @@
+node_modules/
+.env
+data/*.db
+data/*.sqlite
+data/*.json
+supabase/.temp/
+npm-debug.log*
+.DS_Store
+
+.vercel

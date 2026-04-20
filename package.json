@@ -1,0 +1,23 @@
+{
+  "name": "keuangan-telegram",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Bot Telegram pribadi untuk mencatat pemasukan dan pengeluaran.",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "telegram": "node src/telegram-bot.js",
+    "ensure:secrets": "node scripts/ensure-local-secrets.js",
+    "setup:webhook": "node scripts/setup-telegram-webhook.js",
+    "check:production": "node scripts/check-production.js",
+    "test": "node --test",
+    "test:local-chat": "node scripts/local-chat-scenario.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "postgres": "^3.4.9"
+  }
+}
