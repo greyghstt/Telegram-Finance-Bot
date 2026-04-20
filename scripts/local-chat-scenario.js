@@ -9,7 +9,7 @@ const messages = [
   "+2jt gaji bca",
   "-20k bensin",
   "-makan ayam 27rb via qris #kantin",
-  "1. -12k alfamid\n2. -8rb parkir\n3. +100k refund",
+  "1. -12k minimarket\n2. -8rb parkir\n3. +100k refund",
   "saldo",
   "riwayat",
   "kategori",

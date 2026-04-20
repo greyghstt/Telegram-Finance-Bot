@@ -136,7 +136,7 @@ targets Indonesian daily usage:
 Batch transactions:
 
 ```text
-1. -12k alfamid
+1. -12k minimarket
 2. -20k bensin
 3. +100k refund
 ```

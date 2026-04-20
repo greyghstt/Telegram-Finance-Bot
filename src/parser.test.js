@@ -116,7 +116,7 @@ describe("parseInput", () => {
   });
 
   it("parses multiline transactions as a batch", () => {
-    const result = parseInput("1. -12k alfamid\n2. -20k bensin\n3. +100k refund");
+    const result = parseInput("1. -12k minimarket\n2. -20k bensin\n3. +100k refund");
 
     assert.equal(result.ok, true);
     assert.equal(result.kind, "batch");

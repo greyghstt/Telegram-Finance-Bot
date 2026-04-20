@@ -51,7 +51,7 @@ describe("database", () => {
 
   it("saves batch transactions and calculates summary", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-12k alfamid\n-20k bensin\n+100k refund");
+    const parsed = parseInput("-12k minimarket\n-20k bensin\n+100k refund");
     const saved = await saveTransactions(database, parsed.transactions);
     const summary = await getSummary(database);
 
@@ -89,7 +89,7 @@ describe("database", () => {
 
   it("clears all transactions", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-12k alfamid\n-20k bensin\n+100k refund");
+    const parsed = parseInput("-12k minimarket\n-20k bensin\n+100k refund");
 
     await saveTransactions(database, parsed.transactions);
     const result = await clearAllTransactions(database);
