@@ -26,12 +26,12 @@ app.use(express.json());
 app.get("/", (req, res) => {
   res.type("text").send(
     [
-      "Keuangan Telegram berjalan.",
+      "Telegram Finance Bot is running.",
       "",
-      "Endpoint tersedia:",
+      "Available endpoint:",
       "- GET /health",
       "",
-      "Endpoint admin membutuhkan token:",
+      "Admin endpoints require a token:",
       "- GET /database/status",
       "- POST /simulate",
       "- POST /messages",
@@ -40,7 +40,7 @@ app.get("/", (req, res) => {
       "- GET /summary",
       "- DELETE /transactions/last",
       "",
-      "Biarkan terminal npm run dev tetap menyala saat membuka localhost.",
+      "Keep the npm run dev terminal open while testing localhost.",
     ].join("\n"),
   );
 });
@@ -48,7 +48,7 @@ app.get("/", (req, res) => {
 app.get("/health", async (req, res) => {
   res.json({
     ok: true,
-    service: "keuangan-telegram",
+    service: "telegram-finance-bot",
     message: "Server hidup.",
   });
 });
@@ -147,5 +147,5 @@ app.delete("/transactions/last", requireAdmin, async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Keuangan Telegram berjalan di http://localhost:${port}`);
+  console.log(`Telegram Finance Bot running at http://localhost:${port}`);
 });

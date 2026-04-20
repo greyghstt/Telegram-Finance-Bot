@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import postgres from "postgres";
 
-const DEFAULT_DB_PATH = resolve("data", "keuangan-telegram.sqlite");
+const DEFAULT_DB_PATH = resolve("data", "telegram-finance-bot.sqlite");
 
 export function openDatabase(filePath = process.env.DATABASE_PATH ?? DEFAULT_DB_PATH) {
   if (process.env.DATABASE_URL && filePath !== ":memory:") {

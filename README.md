@@ -1,35 +1,39 @@
-# Keuangan Telegram
+# Telegram Finance Bot
 
-Bot Telegram pribadi untuk mencatat pemasukan dan pengeluaran lewat chat.
+A private Telegram bot for tracking income and expenses through chat.
+
+The repository and documentation are in English. The Telegram bot itself still
+uses Indonesian commands, parser examples, and replies because that is the
+current target usage.
 
 ## Status
 
-Project sudah live:
+The project is live:
 
-- Production: `https://keuangan-telegram.vercel.app`
-- Webhook: `https://keuangan-telegram.vercel.app/api/telegram/webhook`
-- Runtime: Vercel Functions region `syd1`
+- Production: `https://telegram-finance-bot.vercel.app`
+- Webhook: `https://telegram-finance-bot.vercel.app/api/telegram/webhook`
+- Runtime: Vercel Functions in `syd1`
 - Database: Supabase Postgres
-- Repo: `https://github.com/greyghstt/keuangan-telegram`
+- Repository: `https://github.com/greyghstt/telegram-finance-bot`
 
-Fitur utama:
+Main features:
 
-- Catat transaksi dengan awalan `+` atau `-`.
-- Mode input pemasukan/pengeluaran tanpa tanda lewat menu Telegram.
-- Saldo, laporan harian, mingguan, bulanan, tahunan.
-- Riwayat transaksi dengan ID dan timestamp WIB.
-- Hapus transaksi terakhir atau hapus transaksi berdasarkan ID.
-- Pencarian transaksi.
-- Ringkasan kategori.
-- Export CSV langsung sebagai file Telegram.
-- Reset semua transaksi dengan konfirmasi `YA RESET`.
-- Webhook dilindungi `TELEGRAM_WEBHOOK_SECRET`.
-- Endpoint admin dilindungi `ADMIN_API_TOKEN`.
+- Record transactions with a leading `+` or `-`.
+- Income/expense input modes from Telegram menu buttons.
+- Balance, daily, weekly, monthly, and yearly reports.
+- Transaction history with IDs and WIB timestamps.
+- Delete the latest transaction or delete by ID.
+- Search transactions.
+- Category summary.
+- Export CSV as a Telegram document.
+- Reset all transactions with `YA RESET` confirmation.
+- Telegram webhook protected by `TELEGRAM_WEBHOOK_SECRET`.
+- Admin endpoints protected by `ADMIN_API_TOKEN`.
 
-## Struktur
+## Project Structure
 
 ```text
-Keuangan-Telegram/
+Telegram-Finance-Bot/
   api/telegram/webhook.js
   docs/
     LOCAL_TESTING.md
@@ -54,69 +58,70 @@ Keuangan-Telegram/
 
 ## Environment
 
-Buat `.env` dari `.env.example`, lalu isi nilai asli di `.env` saja.
+Create `.env` from `.env.example`, then put real secrets only in `.env`.
 
 ```env
 PORT=3000
-DATABASE_PATH=data/keuangan-telegram.sqlite
+DATABASE_PATH=data/telegram-finance-bot.sqlite
 DATABASE_URL=
-TELEGRAM_BOT_TOKEN=isi_token_baru_dari_botfather
+TELEGRAM_BOT_TOKEN=your_new_botfather_token
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TELEGRAM_WEBHOOK_URL=
 TELEGRAM_WEBHOOK_SECRET=
 ADMIN_API_TOKEN=
 ```
 
-Catatan:
+Notes:
 
-- `.env` berisi rahasia asli dan tidak boleh masuk Git.
-- `.env.example` hanya template dan tidak boleh berisi token, password, atau
-  chat ID asli.
-- Jika password Supabase pernah sempat masuk repo, reset password dari
-  dashboard Supabase lalu update `DATABASE_URL`.
+- `.env` contains real secrets and must not be committed.
+- `.env.example` is a safe template and must not contain real tokens,
+  passwords, or private chat IDs.
+- If a Supabase password was ever committed, reset it in Supabase Dashboard and
+  update `DATABASE_URL`.
 
-## Jalankan Lokal
+## Local Development
 
 ```powershell
 npm.cmd install
 npm.cmd run dev
 ```
 
-Cek:
+Check:
 
 ```text
 http://localhost:3000/health
 ```
 
-Bot polling lokal:
+Local Telegram polling mode:
 
 ```powershell
 npm.cmd run telegram
 ```
 
-## Test
+## Tests
 
 ```powershell
 npm.cmd test
 npm.cmd run test:local-chat
 ```
 
-Cek production:
+Production check:
 
 ```powershell
 npm.cmd run check:production
 ```
 
-Runbook operasional ada di [docs/RUNBOOK.md](./docs/RUNBOOK.md).
+Operational notes are in [docs/RUNBOOK.md](./docs/RUNBOOK.md).
 
-## Format Transaksi
+## Transaction Format
 
-Setiap transaksi manual wajib diawali tanda:
+Manual transactions must start with:
 
-- `+` untuk pemasukan.
-- `-` untuk pengeluaran.
+- `+` for income.
+- `-` for expense.
 
-Contoh:
+Examples, intentionally kept in Indonesian because the bot parser currently
+targets Indonesian daily usage:
 
 ```text
 -20k bensin
@@ -128,7 +133,7 @@ Contoh:
 -Rp125.000 buku kategori education 16/04/2026
 ```
 
-Batch transaksi:
+Batch transactions:
 
 ```text
 1. -12k alfamid
@@ -136,26 +141,26 @@ Batch transaksi:
 3. +100k refund
 ```
 
-Nominal yang didukung:
+Supported amount examples:
 
 - `20k`, `20rb`, `20r`, `20 rebu`
 - `20.000`, `20,000`
 - `1,5jt`, `2.5 juta`
 - `Rp1.250.000`
 
-Metadata yang didukung:
+Supported metadata:
 
-- Kategori otomatis: food, transport, groceries, bills, health, education,
+- Auto categories: food, transport, groceries, bills, health, education,
   shopping, entertainment, housing, family, donation, debt, income, other.
-- Kategori eksplisit: `kategori education`, `category food`, `cat transport`.
-- Metode bayar: cash, qris, debit, kartu kredit, transfer bank, e-wallet.
-- Tanggal: `hari ini`, `kemarin`, `besok`, `16/04/2026`, `2026-04-16`,
+- Explicit category: `kategori education`, `category food`, `cat transport`.
+- Payment method: cash, qris, debit, credit card, bank transfer, e-wallet.
+- Date hints: `hari ini`, `kemarin`, `besok`, `16/04/2026`, `2026-04-16`,
   `16 apr`.
-- Tag: `#kantin`, `#kampus`.
+- Tags: `#kantin`, `#kampus`.
 
-## Command Telegram
+## Telegram Commands
 
-Command menu:
+The Telegram commands remain Indonesian for now:
 
 ```text
 /start
@@ -177,7 +182,7 @@ Command menu:
 /stop
 ```
 
-Command teks:
+Text commands:
 
 ```text
 saldo
@@ -195,51 +200,51 @@ reset
 help
 ```
 
-Mode input:
+Input modes:
 
-- `/pemasukan`, lalu pesan berikutnya boleh `500k gaji`.
-- `/pengeluaran`, lalu pesan berikutnya boleh `20k bensin`.
-- `/batal` membatalkan mode input.
+- `/pemasukan`, then the next message can be `500k gaji`.
+- `/pengeluaran`, then the next message can be `20k bensin`.
+- `/batal` cancels the active input mode.
 
-Reset data:
+Reset flow:
 
-1. Kirim `/reset`.
-2. Bot meminta konfirmasi.
-3. Balas persis:
+1. Send `/reset`.
+2. The bot asks for confirmation.
+3. Reply exactly:
 
 ```text
 YA RESET
 ```
 
-## Deploy
+## Deployment
 
-Sebelum deploy:
+Before deploying:
 
 ```powershell
 npm.cmd test
 npm.cmd run test:local-chat
 ```
 
-Deploy production:
+Production deploy:
 
 ```powershell
 vercel.cmd deploy --prod --yes
 ```
 
-Set ulang webhook:
+Reset Telegram webhook:
 
 ```powershell
-$env:TELEGRAM_WEBHOOK_URL="https://keuangan-telegram.vercel.app/api/telegram/webhook"
+$env:TELEGRAM_WEBHOOK_URL="https://telegram-finance-bot.vercel.app/api/telegram/webhook"
 npm.cmd run setup:webhook
 ```
 
-Verifikasi:
+Verify:
 
 ```powershell
 npm.cmd run check:production
 ```
 
-## Endpoint
+## Endpoints
 
 Public:
 
@@ -249,7 +254,7 @@ GET /api/telegram/webhook
 POST /api/telegram/webhook
 ```
 
-Admin, perlu `ADMIN_API_TOKEN`:
+Admin, requires `ADMIN_API_TOKEN`:
 
 ```text
 GET /database/status
@@ -261,20 +266,20 @@ GET /summary
 DELETE /transactions/last
 ```
 
-Contoh admin:
+Admin example:
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "https://keuangan-telegram.vercel.app/database/status" `
+  -Uri "https://telegram-finance-bot.vercel.app/database/status" `
   -Headers @{"x-admin-api-token"=$env:ADMIN_API_TOKEN}
 ```
 
 ## Maintenance
 
-- Panduan cek error dan rollback: [docs/RUNBOOK.md](./docs/RUNBOOK.md).
-- Plan project: [docs/PROJECT_PLAN.md](./docs/PROJECT_PLAN.md).
-- Test lokal: [docs/LOCAL_TESTING.md](./docs/LOCAL_TESTING.md).
+- Debugging and rollback guide: [docs/RUNBOOK.md](./docs/RUNBOOK.md).
+- Project plan: [docs/PROJECT_PLAN.md](./docs/PROJECT_PLAN.md).
+- Local testing guide: [docs/LOCAL_TESTING.md](./docs/LOCAL_TESTING.md).
 
 ## License
 
-MIT. Lihat [LICENSE](./LICENSE).
+MIT. See [LICENSE](./LICENSE).

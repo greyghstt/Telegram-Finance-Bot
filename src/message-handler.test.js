@@ -128,7 +128,7 @@ describe("message handler", () => {
 
     assert.match(exported.csv, /created_at_local/);
     assert.match(exported.csv, /WIB/);
-    assert.match(exported.filename, /keuangan-telegram-.*\.csv/);
+    assert.match(exported.filename, /telegram-finance-bot-.*\.csv/);
   });
 
   it("returns reset instructions for reset command", async () => {

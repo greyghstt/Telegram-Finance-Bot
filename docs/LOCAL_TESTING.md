@@ -1,41 +1,42 @@
 # Local Testing Guide
 
-Panduan ini dipakai untuk mengetes Keuangan Telegram tanpa Telegram live. Tujuannya
-memastikan parser, database, command, dan balasan bot sudah berjalan sebelum
-bot dijalankan memakai token Telegram.
+Use this guide to test Telegram Finance Bot without a live Telegram webhook.
+The goal is to verify the parser, database, commands, and bot replies before
+running with a real Telegram token.
 
-## 1. Test Otomatis
+The bot command language remains Indonesian for now, so the examples below use
+Indonesian commands and transaction notes.
 
-Jalankan:
+## 1. Automated Tests
 
-```bash
+Run:
+
+```powershell
 npm.cmd test
 ```
 
-Yang dites:
+Covered areas:
 
-- Parser nominal dan command.
-- Database SQLite in-memory.
-- Simpan transaksi.
-- Ringkasan saldo.
-- Command `saldo`, `riwayat`, `hari ini`, dan `hapus terakhir`.
-- Service Telegram, termasuk mode input pemasukan/pengeluaran yang disimpan
-  di database.
-- Pembatasan akses chat ID.
+- Amount parser and command parser.
+- In-memory SQLite database.
+- Transaction saving.
+- Balance summary.
+- Commands such as `saldo`, `riwayat`, `hari ini`, and `hapus terakhir`.
+- Telegram service behavior, including database-backed income/expense input
+  modes.
+- Chat ID access control.
 
-Jika berhasil, hasil akhirnya harus menunjukkan semua test `pass`.
+The final test output should show all tests as passing.
 
-## 2. Test Chat Lokal
+## 2. Local Chat Scenario
 
-Jalankan:
+Run:
 
-```bash
+```powershell
 npm.cmd run test:local-chat
 ```
 
-Script ini akan mensimulasikan chat berikut:
-
-Untuk transaksi, tanda `+` atau `-` di awal pesan wajib dipakai:
+The script simulates this chat flow:
 
 ```text
 +2jt gaji bca
@@ -46,74 +47,93 @@ Untuk transaksi, tanda `+` atau `-` di awal pesan wajib dipakai:
 3. +100k refund
 saldo
 riwayat
+kategori
+cari bensin
+hapus 2
 hari ini
 hapus terakhir
 saldo
 help
 ```
 
-Script memakai database sementara:
+It uses a temporary database:
 
 ```text
 data/local-chat-scenario.sqlite
 ```
 
-File tersebut akan dihapus otomatis setelah test selesai.
+That file is deleted automatically after the test finishes.
 
-## 3. Test Server Lokal
+## 3. Local Server Test
 
-Jalankan server:
+Start the server:
 
-```bash
+```powershell
 npm.cmd run dev
 ```
 
-Biarkan terminal tetap menyala. Buka terminal kedua untuk mengirim request.
+Keep that terminal running. Use a second terminal for requests.
 
-### Cek Server
+### Health Check
 
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:3000/health"
 ```
 
-### Simulasi Pesan Bot
+### Simulate a Bot Message
 
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:3000/messages" -Method Post -ContentType "application/json" -Body '{"message":"-20k bensin"}'
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"-20k bensin"}'
 ```
 
-### Cek Saldo
+### Balance
 
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:3000/messages" -Method Post -ContentType "application/json" -Body '{"message":"saldo"}'
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"saldo"}'
 ```
 
-### Cek Riwayat
+### History
 
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:3000/messages" -Method Post -ContentType "application/json" -Body '{"message":"riwayat"}'
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"riwayat"}'
 ```
 
-### Hapus Transaksi Terakhir
+### Delete Latest Transaction
 
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:3000/messages" -Method Post -ContentType "application/json" -Body '{"message":"hapus terakhir"}'
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"hapus terakhir"}'
 ```
 
-## 4. Kapan Lanjut ke Telegram Live
+## 4. When to Test Live Telegram
 
-Lanjut menjalankan bot Telegram jika:
+Move to live Telegram testing when:
 
-- `npm.cmd test` berhasil.
-- `npm.cmd run test:local-chat` berhasil.
-- Endpoint `POST /messages` bisa menyimpan transaksi.
-- Command `saldo`, `hari ini`, `riwayat`, dan `hapus terakhir` berjalan.
-- `.env` sudah berisi `TELEGRAM_BOT_TOKEN` baru dari BotFather.
+- `npm.cmd test` passes.
+- `npm.cmd run test:local-chat` passes.
+- `POST /messages` can save transactions locally.
+- Commands like `saldo`, `hari ini`, `riwayat`, and `hapus terakhir` work.
+- `.env` contains a fresh `TELEGRAM_BOT_TOKEN` from BotFather.
 
-Untuk persiapan deploy webhook, pastikan juga:
+For webhook deployment, also make sure:
 
-- `api/telegram/webhook.js` lolos `node --check`.
-- `scripts/setup-telegram-webhook.js` lolos `node --check`.
-- `DATABASE_URL` Supabase sudah tersedia sebelum deploy Vercel.
+- `api/telegram/webhook.js` passes `node --check`.
+- `scripts/setup-telegram-webhook.js` passes `node --check`.
+- `DATABASE_URL` for Supabase is available before Vercel deployment.
 
-Jika salah satu belum berjalan, perbaiki dulu di lokal.
+Fix local failures before deploying.

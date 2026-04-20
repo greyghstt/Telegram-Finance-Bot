@@ -1,23 +1,23 @@
-# Runbook Operasional
+# Operations Runbook
 
-Panduan singkat saat bot lambat, tidak membalas, atau perlu dicek setelah
-deploy.
+Use this short runbook when the bot is slow, does not reply, or needs a
+post-deploy health check.
 
-## Cek Cepat
+## Quick Check
 
-Jalankan dari folder project:
+Run from the project folder:
 
 ```powershell
 npm.cmd run check:production
 ```
 
-Yang dicek:
+It checks:
 
-- `/health` production.
-- `/database/status` dengan `ADMIN_API_TOKEN`.
+- Production `/health`.
+- `/database/status` with `ADMIN_API_TOKEN`.
 - Telegram `getWebhookInfo`.
 
-Hasil sehat biasanya:
+Healthy output should look like:
 
 ```text
 OK health - 200 ...
@@ -25,68 +25,68 @@ OK database/status - 200 ...
 OK telegram webhook - ... pending=0 lastError=null
 ```
 
-## Cek Webhook Telegram
+## Check Telegram Webhook
 
 ```powershell
 node -e "import('dotenv/config').then(async()=>{const r=await fetch('https://api.telegram.org/bot'+process.env.TELEGRAM_BOT_TOKEN+'/getWebhookInfo'); console.log(await r.text())})"
 ```
 
-Perhatikan:
+Look for:
 
-- `url` harus mengarah ke
-  `https://keuangan-telegram.vercel.app/api/telegram/webhook`.
-- `pending_update_count` idealnya kecil atau `0`.
-- `last_error_message` harus `null`.
+- `url` should be
+  `https://telegram-finance-bot.vercel.app/api/telegram/webhook`.
+- `pending_update_count` should be small or `0`.
+- `last_error_message` should be `null`.
 
-## Cek Log Vercel
+## Check Vercel Logs
 
 ```powershell
-vercel.cmd logs https://keuangan-telegram.vercel.app
+vercel.cmd logs https://telegram-finance-bot.vercel.app
 ```
 
-Gunakan ini kalau Telegram tidak membalas atau ada error 500.
+Use this when Telegram does not reply or an endpoint returns 500.
 
-## Cek Endpoint Admin
+## Check Admin Endpoint
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "https://keuangan-telegram.vercel.app/database/status" `
+  -Uri "https://telegram-finance-bot.vercel.app/database/status" `
   -Headers @{"x-admin-api-token"=$env:ADMIN_API_TOKEN}
 ```
 
-Jika `401`, token admin di environment lokal atau Vercel perlu dicek.
+If it returns `401`, check the local or Vercel `ADMIN_API_TOKEN`.
 
-## Deploy dan Rollback
+## Deploy and Rollback
 
-Deploy production:
+Production deploy:
 
 ```powershell
 vercel.cmd deploy --prod --yes
 ```
 
-Rollback lewat dashboard Vercel:
+Rollback from Vercel Dashboard:
 
-1. Buka project `keuangan-telegram`.
-2. Masuk ke tab Deployments.
-3. Pilih deployment terakhir yang sehat.
-4. Promote atau rollback ke deployment tersebut.
+1. Open the `telegram-finance-bot` project.
+2. Go to Deployments.
+3. Select the latest healthy deployment.
+4. Promote or roll back to that deployment.
 
-## Setelah Ganti Secret
+## After Secret Changes
 
-Jika mengganti `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
-`ADMIN_API_TOKEN`, atau `DATABASE_URL`:
+If you change `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
+`ADMIN_API_TOKEN`, or `DATABASE_URL`:
 
-1. Update `.env` lokal.
-2. Update environment variable di Vercel.
-3. Deploy ulang.
-4. Set ulang webhook:
+1. Update local `.env`.
+2. Update Vercel environment variables.
+3. Redeploy.
+4. Reset the Telegram webhook:
 
 ```powershell
-$env:TELEGRAM_WEBHOOK_URL="https://keuangan-telegram.vercel.app/api/telegram/webhook"
+$env:TELEGRAM_WEBHOOK_URL="https://telegram-finance-bot.vercel.app/api/telegram/webhook"
 npm.cmd run setup:webhook
 ```
 
-5. Jalankan:
+5. Run:
 
 ```powershell
 npm.cmd run check:production

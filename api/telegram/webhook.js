@@ -15,7 +15,7 @@ const databaseReady = shouldInitializeDatabaseAtRuntime()
 
 export default async function handler(req, res) {
   if (req.method === "GET") {
-    res.status(200).json({ ok: true, service: "keuangan-telegram-webhook" });
+    res.status(200).json({ ok: true, service: "telegram-finance-bot-webhook" });
     return;
   }
 
