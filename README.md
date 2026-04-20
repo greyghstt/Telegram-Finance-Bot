@@ -10,8 +10,8 @@ current target usage.
 
 The project is live:
 
-- Production: `https://telegram-finance-bot.vercel.app`
-- Webhook: `https://telegram-finance-bot.vercel.app/api/telegram/webhook`
+- Production: `https://keuangan-telegram.vercel.app`
+- Webhook: `https://keuangan-telegram.vercel.app/api/telegram/webhook`
 - Runtime: Vercel Functions in `syd1`
 - Database: Supabase Postgres
 - Repository: `https://github.com/greyghstt/telegram-finance-bot`
@@ -234,7 +234,7 @@ vercel.cmd deploy --prod --yes
 Reset Telegram webhook:
 
 ```powershell
-$env:TELEGRAM_WEBHOOK_URL="https://telegram-finance-bot.vercel.app/api/telegram/webhook"
+$env:TELEGRAM_WEBHOOK_URL="https://keuangan-telegram.vercel.app/api/telegram/webhook"
 npm.cmd run setup:webhook
 ```
 
@@ -270,7 +270,7 @@ Admin example:
 
 ```powershell
 Invoke-RestMethod `
-  -Uri "https://telegram-finance-bot.vercel.app/database/status" `
+  -Uri "https://keuangan-telegram.vercel.app/database/status" `
   -Headers @{"x-admin-api-token"=$env:ADMIN_API_TOKEN}
 ```
 
