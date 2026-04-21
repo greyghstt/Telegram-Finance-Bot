@@ -234,8 +234,21 @@ Use [RUNBOOK.md](./RUNBOOK.md) for:
 
 ## Next Optional Improvements
 
+Current status: good enough for temporary personal use. The production bot,
+database, webhook, and Git history are healthy, so the items below are backlog
+work for the next development session.
+
+Recommended priority:
+
+1. Add GitHub Actions CI for automated tests and secret scanning on every push.
+2. Add automatic backup/export, for example a scheduled CSV export or a
+   documented Supabase backup routine.
+3. Add edit transaction by ID, so mistakes can be fixed without deleting and
+   re-entering a transaction.
+4. Add an automatic monthly report from the bot.
+
+Other optional improvements:
+
 - Import CSV backup.
-- Monthly scheduled report.
 - Better category analytics.
 - Optional English bot mode in the future.
-- GitHub Actions CI for tests and secret scanning.
