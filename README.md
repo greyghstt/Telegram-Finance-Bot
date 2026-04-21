@@ -14,7 +14,7 @@ The project is live:
 - Webhook: `https://keuangan-telegram.vercel.app/api/telegram/webhook`
 - Runtime: Vercel Functions in `syd1`
 - Database: Supabase Postgres
-- Repository: `https://github.com/greyghstt/telegram-finance-bot`
+- Repository: `https://github.com/greyghstt/Telegram-Finance-Bot`
 
 Main features:
 
