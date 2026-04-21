@@ -55,7 +55,7 @@ Local polling bot
 - Production URL: `https://keuangan-telegram.vercel.app`
 - Webhook URL:
   `https://keuangan-telegram.vercel.app/api/telegram/webhook`
-- GitHub repository: `https://github.com/greyghstt/telegram-finance-bot`
+- GitHub repository: `https://github.com/greyghstt/Telegram-Finance-Bot`
 - Vercel project: `telegram-finance-bot`
 - Note: the public production domain remains `keuangan-telegram.vercel.app`
   because the shorter English `telegram-finance-bot.vercel.app` alias is not
