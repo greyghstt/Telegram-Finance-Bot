@@ -25,6 +25,7 @@ Covered areas:
 - Read-only `insight` command fallback behavior when AI is disabled or
   unavailable.
 - Finance Q&A, budget progress, and budget suggestion fallback behavior.
+- Plain-text Telegram formatting for AI-assisted replies.
 - Telegram service behavior, including database-backed income/expense input
   modes.
 - Chat ID access control.
@@ -150,7 +151,8 @@ Invoke-RestMethod `
 
 The app computes the summary, categories, recent transactions, and matching
 transactions before calling AI. Tests stub this behavior and do not need a real
-API key.
+API key. The Telegram reply should show the app-computed summary first and any
+AI explanation as plain text.
 
 ### Budget
 

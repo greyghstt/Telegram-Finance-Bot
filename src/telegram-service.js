@@ -416,15 +416,19 @@ async function handlePendingBudgetResetAction(database, token, chatId, text) {
 
 function buildStartReply() {
   return [
-    "Keuangan Telegram siap dipakai.",
+    "Keuangan Telegram siap.",
     "",
-    "Menu command Telegram aktif, dan keyboard cepat juga muncul di bawah chat.",
+    "Pakai tombol cepat di bawah chat atau menu command Telegram.",
     "",
-    "Tombol Input Pemasukan/Pengeluaran adalah alur utama agar pesan berikutnya tidak perlu tanda + atau -.",
+    "Alur utama:",
+    "Input Pemasukan -> 500k gaji",
+    "Input Pengeluaran -> 20k bensin",
     "",
-    "Contoh:",
+    "Tanda cepat juga tetap bisa:",
     "-20k bensin",
     "+500k gaji",
+    "",
+    "Command ringkas:",
     "saldo",
     "hari ini",
     "riwayat",
@@ -434,9 +438,9 @@ function buildStartReply() {
 
 function buildStopReply() {
   return [
-    "Keyboard lama sudah disembunyikan.",
+    "Keyboard cepat disembunyikan.",
     "",
-    "Bot tetap bisa dipakai lewat menu command Telegram atau ketik pesan manual.",
+    "Bot tetap bisa dipakai lewat menu command atau pesan manual.",
   ].join("\n");
 }
 
@@ -446,12 +450,10 @@ function buildInputModePrompt(mode) {
   const sign = mode === "income" ? "+" : "-";
 
   return [
-    `Mode input ${label} aktif.`,
+    `Mode ${label} aktif.`,
     "",
-    `Ketik pesan berikutnya tanpa tanda ${sign}.`,
+    `Kirim nominal dan catatan tanpa tanda ${sign}.`,
     `Contoh: ${example}`,
-    "",
-    "Bot akan otomatis menambahkan tanda yang sesuai.",
     "Ketik /batal untuk membatalkan.",
   ].join("\n");
 }

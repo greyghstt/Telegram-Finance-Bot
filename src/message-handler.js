@@ -52,17 +52,16 @@ export async function handleMessage(database, message, options = {}) {
       kind: "error",
       parsed,
       reply: [
+        "Format belum aman untuk disimpan.",
         parsed.error,
         "",
-        "Wajib:",
-        "+ di awal untuk pemasukan",
-        "- di awal untuk pengeluaran",
+        "Pakai alur utama:",
+        "/pemasukan lalu kirim 500k gaji",
+        "/pengeluaran lalu kirim 20k bensin",
         "",
-        "Contoh:",
+        "Tanda cepat tetap bisa:",
         "-20k bensin",
         "+500k gaji",
-        "saldo",
-        "hari ini",
       ].join("\n"),
     };
   }
@@ -197,8 +196,8 @@ export function getPeriodRange(period, now = new Date()) {
 function buildSavedReply(saved, summary) {
   const title =
     saved.length === 1
-      ? "1 transaksi berhasil dicatat."
-      : `${saved.length} transaksi berhasil dicatat.`;
+      ? "Tersimpan: 1 transaksi"
+      : `Tersimpan: ${saved.length} transaksi`;
   const lines = [title, ""];
 
   for (const transaction of saved.slice(0, 5)) {
@@ -211,8 +210,8 @@ function buildSavedReply(saved, summary) {
 
   lines.push("");
   lines.push(`Saldo: ${formatRupiah(summary.balance)}`);
-  lines.push(`Masuk total: ${formatRupiah(summary.totalIncome)}`);
-  lines.push(`Keluar total: ${formatRupiah(summary.totalExpense)}`);
+  lines.push(`Masuk: ${formatRupiah(summary.totalIncome)}`);
+  lines.push(`Keluar: ${formatRupiah(summary.totalExpense)}`);
 
   return lines.join("\n");
 }
@@ -229,9 +228,9 @@ async function buildBalanceResponse(database) {
       "Saldo saat ini",
       "",
       `Saldo: ${formatRupiah(summary.balance)}`,
-      `Masuk total: ${formatRupiah(summary.totalIncome)}`,
-      `Keluar total: ${formatRupiah(summary.totalExpense)}`,
-      `Jumlah transaksi: ${summary.transactionCount}`,
+      `Masuk: ${formatRupiah(summary.totalIncome)}`,
+      `Keluar: ${formatRupiah(summary.totalExpense)}`,
+      `Transaksi: ${summary.transactionCount}`,
     ].join("\n"),
   };
 }
@@ -253,10 +252,10 @@ async function buildPeriodResponse(database, period, options) {
 
   if (categories.length > 0) {
     lines.push("");
-    lines.push("Kategori terbesar:");
+    lines.push("Kategori utama:");
     for (const category of categories) {
       const amount = category.totalExpense || category.totalIncome;
-      lines.push(`- ${category.category}: ${formatRupiah(amount)}`);
+      lines.push(`- ${formatCategoryLabel(category.category)}: ${formatRupiah(amount)}`);
     }
   }
 
@@ -313,7 +312,7 @@ async function buildCategoryReportResponse(database) {
     for (const category of categories) {
       const amount = category.totalExpense || category.totalIncome;
       lines.push(
-        `- ${category.category}: ${formatRupiah(amount)} (${category.transactionCount} transaksi)`,
+        `- ${formatCategoryLabel(category.category)}: ${formatRupiah(amount)} (${category.transactionCount} transaksi)`,
       );
     }
   }
@@ -372,7 +371,7 @@ async function tryHandleNaturalTransaction(database, message, parsed, options) {
     saved,
     summary,
     reply: [
-      "AI membaca transaksi dan aplikasi berhasil memvalidasi hasilnya.",
+      "Transaksi dari AI tervalidasi.",
       "",
       buildSavedReply(saved, summary),
     ].join("\n"),
@@ -410,7 +409,9 @@ async function buildFinanceQuestionResponse(database, question, options) {
     categories: data.categories,
     matchingSummary: data.matchingSummary,
     ai: aiResult,
-    reply: aiResult.ok ? aiResult.content : buildManualQuestionReply(question, data, aiResult.reason),
+    reply: aiResult.ok
+      ? buildAiQuestionReply(question, data, aiResult.content)
+      : buildManualQuestionReply(question, data, aiResult.reason),
   };
 }
 
@@ -451,9 +452,9 @@ async function buildBudgetSetResponse(database, command, options) {
     budget,
     budgets: data.budgets,
     reply: [
-      `Budget ${budget.category} disimpan.`,
+      `Budget ${formatCategoryLabel(budget.category)} disimpan.`,
       "",
-      `${budget.category}: ${formatRupiah(budget.monthlyLimit)} per bulan`,
+      `${formatCategoryLabel(budget.category)}: ${formatRupiah(budget.monthlyLimit)} per bulan`,
       "",
       buildBudgetProgressReply(data),
     ].join("\n"),
@@ -477,7 +478,7 @@ async function buildBudgetDeleteResponse(database, category, options) {
     kind: "command",
     command: "budget_delete",
     deleted,
-    reply: `Budget ${deleted.category} dihapus.`,
+    reply: `Budget ${formatCategoryLabel(deleted.category)} dihapus.`,
   };
 }
 
@@ -512,7 +513,9 @@ async function buildBudgetSuggestionResponse(database, options) {
     command: "budget_suggestion",
     budgets: data.budgets,
     ai: aiResult,
-    reply: aiResult.ok ? aiResult.content : buildManualBudgetSuggestionReply(data, aiResult.reason),
+    reply: aiResult.ok
+      ? buildAiBudgetSuggestionReply(data, aiResult.content)
+      : buildManualBudgetSuggestionReply(data, aiResult.reason),
   };
 }
 
@@ -648,21 +651,41 @@ function buildInsightSummaryLines(data) {
 
 function buildManualQuestionReply(question, data, reason) {
   const lines = [
-    "Jawaban keuangan",
+    ...buildQuestionSummaryLines(question, data),
     "",
     aiFallbackLabel(reason),
-    "",
-    `Pertanyaan: ${question}`,
+  ];
+
+  return lines.join("\n");
+}
+
+function buildAiQuestionReply(question, data, content) {
+  const answer = cleanAiText(content);
+  const lines = buildQuestionSummaryLines(question, data);
+
+  if (answer) {
+    lines.push("");
+    lines.push("Jawaban AI:");
+    lines.push(answer);
+  }
+
+  return lines.join("\n");
+}
+
+function buildQuestionSummaryLines(question, data) {
+  const lines = [
+    "Jawaban keuangan",
+    `Tanya: ${question}`,
     `Periode: ${data.periodLabel}`,
-    `Masuk: ${formatRupiah(data.summary.totalIncome)}`,
     `Keluar: ${formatRupiah(data.summary.totalExpense)}`,
+    `Masuk: ${formatRupiah(data.summary.totalIncome)}`,
     `Saldo: ${formatRupiah(data.summary.balance)}`,
     `Transaksi: ${data.summary.transactionCount}`,
   ];
 
   if (data.matchingSummary.transactionCount > 0) {
     lines.push("");
-    lines.push(`Data cocok (${data.matchedTerms.join(", ")}):`);
+    lines.push(`Data cocok: ${data.matchedTerms.join(", ")}`);
     lines.push(`Keluar: ${formatRupiah(data.matchingSummary.totalExpense)}`);
     lines.push(`Masuk: ${formatRupiah(data.matchingSummary.totalIncome)}`);
     lines.push(`Transaksi: ${data.matchingSummary.transactionCount}`);
@@ -676,18 +699,18 @@ function buildManualQuestionReply(question, data, reason) {
 
   if (data.categories.length > 0) {
     lines.push("");
-    lines.push("Kategori terbesar:");
+    lines.push("Kategori utama:");
     for (const category of data.categories.slice(0, 3)) {
       const amount = category.totalExpense || category.totalIncome;
-      lines.push(`- ${category.category}: ${formatRupiah(amount)}`);
+      lines.push(`- ${formatCategoryLabel(category.category)}: ${formatRupiah(amount)}`);
     }
   }
 
-  return lines.join("\n");
+  return lines;
 }
 
 function buildBudgetProgressReply(data) {
-  const lines = ["Progress budget", "", `Periode: ${data.periodLabel}`];
+  const lines = ["Budget bulan ini"];
 
   if (data.budgets.length === 0) {
     lines.push("", "Belum ada budget. Contoh: budget food 700k");
@@ -696,14 +719,15 @@ function buildBudgetProgressReply(data) {
 
   lines.push("");
   for (const budget of data.budgets) {
+    const label = formatCategoryLabel(budget.category);
     lines.push(
-      `${budget.category}: ${formatRupiah(budget.spent)} / ${formatRupiah(budget.monthlyLimit)}, ${budget.percent}%`,
+      `${label}: ${formatRupiah(budget.spent)} / ${formatRupiah(budget.monthlyLimit)} (${budget.percent}%)`,
     );
 
     if (budget.status === "over") {
-      lines.push(`! ${budget.category} sudah melewati budget.`);
+      lines.push(`Batas terlewati: ${label}.`);
     } else if (budget.status === "warning") {
-      lines.push(`! ${budget.category} sudah mencapai 80% budget.`);
+      lines.push(`Mendekati batas: ${label} sudah 80% atau lebih.`);
     }
   }
 
@@ -711,7 +735,7 @@ function buildBudgetProgressReply(data) {
 }
 
 function buildManualBudgetSuggestionReply(data, reason) {
-  const lines = ["Saran budget", "", aiFallbackLabel(reason)];
+  const lines = [buildBudgetHeadline(data), "", aiFallbackLabel(reason)];
 
   if (data.budgets.length === 0) {
     lines.push("", "Belum ada budget. Mulai dari kategori terbesar, misalnya: budget food 700k");
@@ -723,10 +747,10 @@ function buildManualBudgetSuggestionReply(data, reason) {
 
   if (over.length > 0) {
     lines.push("");
-    lines.push(`Prioritas: kurangi ${over.map((budget) => budget.category).join(", ")} karena sudah melewati budget.`);
+    lines.push(`Prioritas: kurangi ${formatBudgetCategoryList(over)} karena sudah melewati budget.`);
   } else if (warning.length > 0) {
     lines.push("");
-    lines.push(`Perlu dijaga: ${warning.map((budget) => budget.category).join(", ")} sudah mendekati batas.`);
+    lines.push(`Perlu dijaga: ${formatBudgetCategoryList(warning)} sudah mendekati batas.`);
   } else {
     lines.push("");
     lines.push("Budget bulan ini masih aman berdasarkan data yang tercatat.");
@@ -735,10 +759,38 @@ function buildManualBudgetSuggestionReply(data, reason) {
   lines.push("");
   lines.push("Ringkasan:");
   for (const budget of data.budgets.slice(0, 5)) {
-    lines.push(`${budget.category}: ${budget.percent}%`);
+    lines.push(`${formatCategoryLabel(budget.category)}: ${budget.percent}%`);
   }
 
   return lines.join("\n");
+}
+
+function buildAiBudgetSuggestionReply(data, content) {
+  const suggestion = cleanAiText(content);
+  const lines = [buildBudgetHeadline(data)];
+
+  if (data.budgets.length > 0) {
+    lines.push("");
+    for (const budget of data.budgets.slice(0, 5)) {
+      lines.push(`${formatCategoryLabel(budget.category)}: ${budget.percent}%`);
+    }
+  }
+
+  if (suggestion) {
+    lines.push("");
+    lines.push("Saran AI:");
+    lines.push(suggestion);
+  }
+
+  return lines.join("\n");
+}
+
+function buildBudgetHeadline(data) {
+  return `Saran budget ${data.periodLabel}`;
+}
+
+function formatBudgetCategoryList(budgets) {
+  return budgets.map((budget) => formatCategoryLabel(budget.category)).join(", ");
 }
 
 function shouldTryNaturalTransaction(parsed, message, options) {
@@ -856,6 +908,7 @@ function cleanAiText(value) {
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/__(.*?)__/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
     .replace(/^\s*[-*]\s+/gm, "- ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -1251,7 +1304,7 @@ function getChatId(options) {
 
 function formatTransaction(transaction, { includeTimestamp = false } = {}) {
   const sign = transaction.type === "income" ? "+" : "-";
-  const category = transaction.category ? ` [${transaction.category}]` : "";
+  const category = transaction.category ? ` [${formatCategoryLabel(transaction.category)}]` : "";
   const timestamp = includeTimestamp ? ` - ${formatTransactionTimestamp(transaction.createdAt)}` : "";
   return `${sign}${formatRupiah(transaction.amount)} ${transaction.note}${category}${timestamp}`;
 }

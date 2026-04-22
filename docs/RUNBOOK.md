@@ -83,6 +83,12 @@ If `/insight` returns only the manual fallback while AI should be active, check
 for a missing key, provider timeout, exhausted provider balance, or invalid
 model name. Existing non-AI commands should continue to work.
 
+AI replies are sent to Telegram as plain text. The app renders the key numbers
+it computed first, then strips common Markdown markers from AI explanations. If
+the output still looks malformed, check the prompt in `src/ai-service.js` and
+the reply builders in `src/message-handler.js` before changing Telegram
+`parse_mode`.
+
 ## Vercel AI Environment
 
 Required AI variables for both Preview and Production:

@@ -83,7 +83,7 @@ describe("telegram service", () => {
     });
 
     assert.equal((await getChatSession(database, 123456789)).pendingInputMode, null);
-    assert.match(readJsonBody(replies.at(-1)).text, /1 transaksi berhasil dicatat/);
+    assert.match(readJsonBody(replies.at(-1)).text, /Tersimpan: 1 transaksi/);
   });
 
   it("requires explicit confirmation before resetting budgets", async () => {
