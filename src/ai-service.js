@@ -35,6 +35,30 @@ export async function generateBudgetSuggestion(data, options = {}) {
   });
 }
 
+export async function extractTransactionCandidates(text, context = {}, options = {}) {
+  const result = await createChatCompletion({
+    data: { text, context },
+    options,
+    messageBuilder: buildTransactionExtractionMessages,
+  });
+
+  if (!result.ok) {
+    return result;
+  }
+
+  try {
+    const parsed = JSON.parse(stripJsonFence(result.content));
+    return {
+      ok: true,
+      enabled: true,
+      candidates: Array.isArray(parsed?.transactions) ? parsed.transactions : [],
+      raw: result.content,
+    };
+  } catch {
+    return fallbackResult("invalid_json");
+  }
+}
+
 async function createChatCompletion({ data, options, messageBuilder }) {
   const env = options.env ?? process.env;
   const config = readAiConfig(env);
@@ -157,6 +181,47 @@ function buildBudgetSuggestionMessages(data) {
   ];
 }
 
+function buildTransactionExtractionMessages(data) {
+  return [
+    {
+      role: "system",
+      content: [
+        "Ekstrak kandidat transaksi dari teks Bahasa Indonesia.",
+        "Balas hanya JSON valid tanpa markdown.",
+        "Format: {\"transactions\":[{\"type\":\"income|expense|unknown\",\"amount\":number,\"note\":\"string\",\"category\":\"string\",\"confidence\":0.0}]}",
+        "Jangan mengarang nominal. Jika nominal tidak jelas, jangan buat transaksi.",
+        "Gunakan type unknown jika pemasukan/pengeluaran ambigu.",
+        "Maksimal 10 transaksi.",
+      ].join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
+        text: String(data?.text ?? ""),
+        context: {
+          defaultType: data?.context?.defaultType ?? null,
+          allowedCategories: [
+            "food",
+            "transport",
+            "groceries",
+            "bills",
+            "health",
+            "education",
+            "shopping",
+            "entertainment",
+            "housing",
+            "family",
+            "donation",
+            "debt",
+            "income",
+            "other",
+          ],
+        },
+      }),
+    },
+  ];
+}
+
 function toSafeInsightPayload(data) {
   return {
     periodLabel: String(data?.periodLabel ?? "semua waktu"),
@@ -264,6 +329,14 @@ function fallbackResult(reason) {
     reason,
     content: "",
   };
+}
+
+function stripJsonFence(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
 }
 
 function readText(value, fallback) {
