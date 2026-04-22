@@ -56,6 +56,10 @@ saldo
 help
 ```
 
+The current local scenario still covers explicit `+` and `-` input for
+backward compatibility. The target input direction is to make signs optional
+when the user has selected `/pemasukan` or `/pengeluaran`.
+
 It uses a temporary database:
 
 ```text

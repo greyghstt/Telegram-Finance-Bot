@@ -18,8 +18,8 @@ The project is live:
 
 Main features:
 
-- Record transactions with a leading `+` or `-`.
-- Income/expense input modes from Telegram menu buttons.
+- Record transactions from Telegram income/expense input modes.
+- Leading `+` or `-` signs are still supported for quick manual input.
 - Balance, daily, weekly, monthly, and yearly reports.
 - Transaction history with IDs and WIB timestamps.
 - Delete the latest transaction or delete by ID.
@@ -116,13 +116,17 @@ Operational notes are in [docs/RUNBOOK.md](./docs/RUNBOOK.md).
 
 ## Transaction Format
 
-Manual transactions must start with:
+The recommended flow is to choose an input mode first:
+
+- `/pemasukan`, then send the amount and note.
+- `/pengeluaran`, then send the amount and note.
+
+Leading signs are still supported for quick manual input:
 
 - `+` for income.
 - `-` for expense.
 
-Examples, intentionally kept in Indonesian because the bot parser currently
-targets Indonesian daily usage:
+Examples with explicit signs:
 
 ```text
 -20k bensin
@@ -140,6 +144,15 @@ Batch transactions:
 1. -12k minimarket
 2. -20k bensin
 3. +100k refund
+```
+
+Examples after selecting an input mode:
+
+```text
+20k bensin
+12rb makan
+500k gaji
+makan ayam 27rb via qris kemarin #kantin
 ```
 
 Supported amount examples:
