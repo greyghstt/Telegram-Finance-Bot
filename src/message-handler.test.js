@@ -160,6 +160,54 @@ describe("message handler", () => {
     assert.equal(result.reply, "AI membaca 1 transaksi.");
   });
 
+  it("answers finance questions with code-calculated context and AI text", async () => {
+    const database = await createTestDatabase();
+    const now = new Date("2026-04-22T10:00:00.000Z");
+    let capturedQuestion;
+    let capturedData;
+
+    await handleMessage(database, "-20k bensin");
+    await handleMessage(database, "-15k makan");
+
+    const result = await handleMessage(database, "tanya berapa total bensin bulan ini?", {
+      now,
+      answerFinanceQuestion: async (question, data) => {
+        capturedQuestion = question;
+        capturedData = data;
+        return {
+          ok: true,
+          content: `Total bensin: ${data.matchingSummary.totalExpense}.`,
+        };
+      },
+    });
+
+    assert.equal(result.command, "finance_question");
+    assert.equal(capturedQuestion, "berapa total bensin bulan ini?");
+    assert.equal(capturedData.periodLabel, "bulan ini");
+    assert.equal(capturedData.summary.totalExpense, 35000);
+    assert.equal(capturedData.matchingSummary.totalExpense, 20000);
+    assert.equal(result.reply, "Total bensin: 20000.");
+  });
+
+  it("returns manual finance question fallback when AI is unavailable", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-20k bensin");
+
+    const result = await handleMessage(database, "/tanya bulan ini boros di mana?", {
+      answerFinanceQuestion: async () => ({
+        ok: false,
+        fallback: true,
+        reason: "provider_error",
+      }),
+    });
+
+    assert.equal(result.command, "finance_question");
+    assert.match(result.reply, /Jawaban keuangan/);
+    assert.match(result.reply, /ringkasan manual/);
+    assert.match(result.reply, /Kategori terbesar/);
+  });
+
   it("includes local timestamps in export csv", async () => {
     const database = await createTestDatabase();
 

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { generateFinanceInsight, isAiEnabled } from "./ai-service.js";
+import {
+  answerFinanceQuestion,
+  generateFinanceInsight,
+  isAiEnabled,
+} from "./ai-service.js";
 
 describe("ai service", () => {
   it("treats AI as disabled unless explicitly enabled", () => {
@@ -104,5 +108,47 @@ describe("ai service", () => {
     assert.equal(result.ok, false);
     assert.equal(result.fallback, true);
     assert.equal(result.reason, "provider_error");
+  });
+
+  it("answers finance questions with computed context only", async () => {
+    const calls = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (...args) => {
+            calls.push(args);
+            return {
+              choices: [{ message: { content: "Bensin bulan ini Rp20.000." } }],
+            };
+          },
+        },
+      },
+    };
+
+    const result = await answerFinanceQuestion(
+      "berapa total bensin bulan ini?",
+      {
+        periodLabel: "bulan ini",
+        summary: { totalIncome: 0, totalExpense: 20000, balance: -20000, transactionCount: 1 },
+        categories: [{ category: "transport", totalExpense: 20000, transactionCount: 1 }],
+        matchingTransactions: [
+          {
+            type: "expense",
+            amount: 20000,
+            note: "bensin",
+            category: "transport",
+            original: "-20k bensin",
+          },
+        ],
+        matchedTerms: ["bensin"],
+      },
+      { client, env: { AI_ENABLED: "true", AI_API_KEY: "test-key" } },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.content, "Bensin bulan ini Rp20.000.");
+    assert.match(calls[0][0].messages[0].content, /Angka utama sudah dihitung/);
+    assert.match(calls[0][0].messages[1].content, /berapa total bensin bulan ini/);
+    assert.doesNotMatch(calls[0][0].messages[1].content, /original/);
   });
 });

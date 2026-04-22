@@ -12,6 +12,22 @@ export function isAiEnabled(env = process.env) {
 }
 
 export async function generateFinanceInsight(data, options = {}) {
+  return createChatCompletion({
+    data,
+    options,
+    messageBuilder: buildInsightMessages,
+  });
+}
+
+export async function answerFinanceQuestion(question, data, options = {}) {
+  return createChatCompletion({
+    data: { question, ...data },
+    options,
+    messageBuilder: buildFinanceQuestionMessages,
+  });
+}
+
+async function createChatCompletion({ data, options, messageBuilder }) {
   const env = options.env ?? process.env;
   const config = readAiConfig(env);
 
@@ -30,7 +46,7 @@ export async function generateFinanceInsight(data, options = {}) {
         model: config.model,
         temperature: config.temperature,
         max_tokens: config.maxTokens,
-        messages: buildInsightMessages(data),
+        messages: messageBuilder(data),
       },
       { timeout: config.timeoutMs },
     );
@@ -93,6 +109,26 @@ function buildInsightMessages(data) {
   ];
 }
 
+function buildFinanceQuestionMessages(data) {
+  return [
+    {
+      role: "system",
+      content: [
+        "Kamu adalah asisten tanya jawab keuangan pribadi.",
+        "Jawab dalam Bahasa Indonesia yang singkat untuk Telegram.",
+        "Angka utama sudah dihitung oleh aplikasi; gunakan hanya data itu.",
+        "Jangan mengarang nominal, tanggal, kategori, atau transaksi.",
+        "Jika konteks tidak cukup untuk menjawab, katakan data belum cukup.",
+        "Berikan penjelasan praktis, bukan nasihat finansial absolut.",
+      ].join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify(toSafeQuestionPayload(data)),
+    },
+  ];
+}
+
 function toSafeInsightPayload(data) {
   return {
     periodLabel: String(data?.periodLabel ?? "semua waktu"),
@@ -120,6 +156,54 @@ function toSafeInsightPayload(data) {
         }))
       : [],
   };
+}
+
+function toSafeQuestionPayload(data) {
+  return {
+    question: String(data?.question ?? ""),
+    periodLabel: String(data?.periodLabel ?? "semua waktu"),
+    summary: {
+      balance: toInteger(data?.summary?.balance),
+      totalIncome: toInteger(data?.summary?.totalIncome),
+      totalExpense: toInteger(data?.summary?.totalExpense),
+      transactionCount: toInteger(data?.summary?.transactionCount),
+    },
+    categories: safeCategories(data?.categories, 8),
+    recentTransactions: safeTransactions(data?.recentTransactions, 5),
+    matchingTransactions: safeTransactions(data?.matchingTransactions, 5),
+    matchingSummary: {
+      totalIncome: toInteger(data?.matchingSummary?.totalIncome),
+      totalExpense: toInteger(data?.matchingSummary?.totalExpense),
+      balance: toInteger(data?.matchingSummary?.balance),
+      transactionCount: toInteger(data?.matchingSummary?.transactionCount),
+    },
+    matchedTerms: Array.isArray(data?.matchedTerms)
+      ? data.matchedTerms.slice(0, 5).map((term) => String(term))
+      : [],
+  };
+}
+
+function safeCategories(categories, limit) {
+  return Array.isArray(categories)
+    ? categories.slice(0, limit).map((category) => ({
+        category: String(category.category ?? "other"),
+        totalIncome: toInteger(category.totalIncome),
+        totalExpense: toInteger(category.totalExpense),
+        transactionCount: toInteger(category.transactionCount),
+      }))
+    : [];
+}
+
+function safeTransactions(transactions, limit) {
+  return Array.isArray(transactions)
+    ? transactions.slice(0, limit).map((transaction) => ({
+        type: transaction.type === "income" ? "income" : "expense",
+        amount: toInteger(transaction.amount),
+        note: String(transaction.note ?? ""),
+        category: String(transaction.category ?? "other"),
+        createdAt: transaction.createdAt ? String(transaction.createdAt) : null,
+      }))
+    : [];
 }
 
 function fallbackResult(reason) {
