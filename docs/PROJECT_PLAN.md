@@ -356,6 +356,42 @@ AI_TIMEOUT_MS=15000
 
 ## AI Implementation Phases
 
+### Agentic Work Guidelines
+
+This project is expected to be developed with Codex CLI in small agentic
+passes. Use `AGENTS.md` as the operating guide for every implementation pass.
+
+Relevant skills and plugins should be selected per task:
+
+- Documentation changes should use `docs-workflow`.
+- Node.js service and test changes should use `javascript-typescript`.
+- Webhook/API changes should use `backend-development`.
+- Supabase and schema work should use `supabase` and `database-design`.
+- Secret handling should use `security-compliance`.
+- Deployment and CI work should use `senior-devops` plus Vercel plugin skills.
+- Repository and PR operations should use the GitHub plugin when needed.
+
+Commit policy:
+
+- Prefer small commits per coherent part.
+- Do not wait until the entire AI feature is finished before committing.
+- Do not mix unrelated concerns in one commit.
+- Run the relevant checks before each code commit.
+- Keep the GitHub history readable and naturally active.
+
+Recommended commit sequence for the AI work:
+
+1. Documentation and agent guide.
+2. AI env placeholders.
+3. AI SDK dependency.
+4. AI service foundation.
+5. Parser command for `insight`.
+6. Message handler integration.
+7. Telegram command/menu update.
+8. Tests and fallback polish.
+9. README/runbook updates.
+10. Deployment and production verification notes.
+
 ### Phase 1: AI Foundation
 
 Goal: add AI infrastructure without changing bot behavior.
