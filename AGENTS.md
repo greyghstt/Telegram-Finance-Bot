@@ -35,7 +35,7 @@ Do not optimize for cleverness if it makes transaction behavior less predictable
 - Do not commit `.env` or real secrets.
 - Do not print API keys, Telegram tokens, database URLs, or private chat IDs.
 - Do not change Indonesian Telegram UX unless the user explicitly asks.
-- Do not make AI auto-save transactions.
+- Do not let AI save unvalidated or ambiguous transactions.
 - Do not remove confirmation from destructive actions.
 - Do not rewrite Git history unless the user explicitly asks.
 - Do not deploy production unless tests pass or the user explicitly accepts the
@@ -184,9 +184,9 @@ docs/RUNBOOK.md
 supabase/migrations/
 ```
 
-## Current Data Rules
+## Input Direction
 
-Manual transactions must start with:
+Current manual parser behavior still supports explicit signs:
 
 - `+` for income
 - `-` for expense
@@ -201,7 +201,16 @@ Examples:
 3. +100k refund
 ```
 
-The manual parser is the source of truth for normal transactions.
+Target direction:
+
+- Leading `+` and `-` should become optional in a future parser update.
+- Telegram income/expense buttons should be the preferred explicit type choice.
+- Natural Indonesian input should be accepted for simple transactions.
+- AI may auto-save a simple transaction only after app-side validation.
+- Ambiguous transactions should ask the user to choose income, expense, or
+  cancel.
+
+The application validator remains the source of truth for saved transactions.
 
 ## AI Integration Rules
 
@@ -240,14 +249,14 @@ AI must be introduced in this order:
 2. Read-only `/insight`.
 3. Model comparison.
 4. Finance Q&A.
-5. Natural input draft extraction with confirmation.
+5. Natural input parser with validated auto-save.
 6. Budget assistant.
 
 AI must never:
 
 - calculate financial truth from raw guesses
 - invent amounts
-- save transactions without confirmation
+- save unvalidated or ambiguous transactions
 - bypass the manual parser for final validation
 - expose secrets in logs
 
