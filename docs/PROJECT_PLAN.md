@@ -35,7 +35,8 @@ hari ini
 hapus terakhir
 ```
 
-Current direct transaction input still supports explicit signs:
+Current direct transaction input still supports explicit signs for backward
+compatibility:
 
 - `+` for income.
 - `-` for expense.
@@ -43,8 +44,9 @@ Current direct transaction input still supports explicit signs:
 The manual parser and database are the source of truth. AI is an optional layer
 for explanation, insight, and future draft extraction.
 
-Long-term input direction: signs should stay supported but should not be
-required after income/expense buttons and AI natural parsing are improved.
+Long-term input direction: signs should stay supported for quick input, but
+they should not be required after income/expense buttons and AI natural parsing
+are improved.
 
 ## Core Principles
 
@@ -598,8 +600,8 @@ Done when:
 
 ## Future Input Simplification
 
-The current manual parser requires a leading `+` or `-` for direct text
-transactions. This is no longer the long-term target because the bot already has
+The current manual parser still relies on a leading `+` or `-` for direct text
+transactions. That requirement should be removed because the bot already has
 Telegram buttons for income and expense input modes.
 
 Target behavior:
@@ -607,13 +609,13 @@ Target behavior:
 - `20k bensin` can be saved as expense when the user selected expense mode.
 - `500k gaji` can be saved as income when the user selected income mode.
 - Simple natural input can be parsed by AI and auto-saved after validation.
-- Leading `+` and `-` remain supported for fast power-user input.
+- Leading `+` and `-` remain supported for fast optional input.
 - If transaction type is unclear, the bot asks the user to choose income or
   expense.
 
 Implementation notes:
 
-- Keep backward compatibility with `+` and `-`.
+- Keep backward compatibility with `+` and `-`, but do not require them.
 - Do not remove tests for signed inputs; add tests for unsigned mode inputs.
 - Use pending input mode before AI when the user explicitly chose a type.
 - Use AI only when deterministic parsing cannot confidently decide.

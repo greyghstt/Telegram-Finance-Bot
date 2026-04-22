@@ -186,7 +186,8 @@ supabase/migrations/
 
 ## Input Direction
 
-Current manual parser behavior still supports explicit signs:
+Current manual parser behavior still supports explicit signs for backward
+compatibility:
 
 - `+` for income
 - `-` for expense
@@ -203,8 +204,8 @@ Examples:
 
 Target direction:
 
-- Leading `+` and `-` should become optional in a future parser update.
 - Telegram income/expense buttons should be the preferred explicit type choice.
+- Leading `+` and `-` should not be required in normal usage.
 - Natural Indonesian input should be accepted for simple transactions.
 - AI may auto-save a simple transaction only after app-side validation.
 - Ambiguous transactions should ask the user to choose income, expense, or
