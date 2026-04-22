@@ -128,6 +128,8 @@ function buildInsightMessages(data) {
       content: [
         "Kamu adalah asisten ringkasan keuangan pribadi.",
         "Jawab dalam Bahasa Indonesia yang singkat dan jelas untuk chat Telegram.",
+        "Tulis teks polos tanpa Markdown, tanpa **bold**, tanpa tabel, dan tanpa emoji.",
+        "Jangan mengulang semua angka ringkasan; fokus pada 2-3 insight praktis.",
         "Gunakan hanya data yang diberikan.",
         "Jangan mengarang nominal, tanggal, kategori, atau transaksi.",
         "Jika data terbatas, katakan bahwa insight masih terbatas.",

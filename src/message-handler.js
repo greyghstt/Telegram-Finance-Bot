@@ -392,7 +392,7 @@ async function buildInsightResponse(database, options) {
     categories: data.categories,
     recentTransactions: data.recentTransactions,
     ai: aiResult,
-    reply: aiResult.ok ? aiResult.content : buildManualInsightReply(data, aiResult.reason),
+    reply: aiResult.ok ? buildAiInsightReply(data, aiResult.content) : buildManualInsightReply(data, aiResult.reason),
   };
 }
 
@@ -575,33 +575,10 @@ async function buildBudgetData(database, options) {
 
 function buildManualInsightReply(data, reason) {
   const lines = [
-    "Insight keuangan",
+    ...buildInsightSummaryLines(data),
     "",
     aiFallbackLabel(reason),
-    "",
-    `Periode: ${data.periodLabel}`,
-    `Saldo: ${formatRupiah(data.summary.balance)}`,
-    `Masuk: ${formatRupiah(data.summary.totalIncome)}`,
-    `Keluar: ${formatRupiah(data.summary.totalExpense)}`,
-    `Transaksi: ${data.summary.transactionCount}`,
   ];
-
-  if (data.categories.length > 0) {
-    lines.push("");
-    lines.push("Kategori terbesar:");
-    for (const category of data.categories) {
-      const amount = category.totalExpense || category.totalIncome;
-      lines.push(`- ${category.category}: ${formatRupiah(amount)} (${category.transactionCount} transaksi)`);
-    }
-  }
-
-  if (data.recentTransactions.length > 0) {
-    lines.push("");
-    lines.push("Transaksi terakhir:");
-    for (const transaction of data.recentTransactions) {
-      lines.push(`- ${formatTransaction(transaction, { includeTimestamp: true })}`);
-    }
-  }
 
   if (data.summary.transactionCount === 0) {
     lines.push("");
@@ -609,6 +586,64 @@ function buildManualInsightReply(data, reason) {
   }
 
   return lines.join("\n");
+}
+
+function buildAiInsightReply(data, content) {
+  const insight = cleanAiText(content);
+  const lines = buildInsightSummaryLines(data);
+
+  if (insight) {
+    lines.push("");
+    lines.push("Insight AI:");
+    lines.push(insight);
+  }
+
+  return lines.join("\n");
+}
+
+function buildInsightSummaryLines(data) {
+  const lines = [
+    "Ringkasan keuangan",
+    `Periode: ${capitalizeFirst(data.periodLabel)}`,
+    `Transaksi: ${data.summary.transactionCount}`,
+    "",
+    `Saldo: ${formatRupiah(data.summary.balance)}`,
+    `Masuk: ${formatRupiah(data.summary.totalIncome)}`,
+    `Keluar: ${formatRupiah(data.summary.totalExpense)}`,
+  ];
+
+  const expenseCategories = data.categories
+    .filter((category) => category.totalExpense > 0)
+    .map((category) => ({
+      ...category,
+      percent: data.summary.totalExpense > 0
+        ? Math.round((category.totalExpense / data.summary.totalExpense) * 100)
+        : 0,
+    }));
+
+  if (expenseCategories.length > 0) {
+    lines.push("");
+    lines.push("Kategori pengeluaran:");
+    expenseCategories.slice(0, 5).forEach((category, index) => {
+      lines.push(`${index + 1}. ${formatCategoryLabel(category.category)}: ${formatRupiah(category.totalExpense)} (${category.percent}%)`);
+    });
+  }
+
+  const largestExpenses = data.recentTransactions
+    .filter((transaction) => transaction.type === "expense")
+    .slice()
+    .sort((left, right) => right.amount - left.amount)
+    .slice(0, 3);
+
+  if (largestExpenses.length > 0) {
+    lines.push("");
+    lines.push("Pengeluaran terbesar:");
+    largestExpenses.forEach((transaction, index) => {
+      lines.push(`${index + 1}. ${transaction.note}: ${formatRupiah(transaction.amount)}`);
+    });
+  }
+
+  return lines;
 }
 
 function buildManualQuestionReply(question, data, reason) {
@@ -814,6 +849,42 @@ function normalizeAiCategory(value, type) {
   }
 
   return type === "income" ? "income" : "other";
+}
+
+function cleanAiText(value) {
+  return String(value ?? "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "- ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function formatCategoryLabel(value) {
+  const labels = {
+    food: "Makanan",
+    transport: "Transport",
+    groceries: "Belanja",
+    bills: "Tagihan",
+    health: "Kesehatan",
+    education: "Pendidikan",
+    shopping: "Shopping",
+    entertainment: "Hiburan",
+    housing: "Rumah",
+    family: "Keluarga",
+    donation: "Donasi",
+    debt: "Utang",
+    income: "Pemasukan",
+    other: "Lainnya",
+  };
+
+  return labels[value] ?? capitalizeFirst(value);
+}
+
+function capitalizeFirst(value) {
+  const text = String(value ?? "").trim();
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : "";
 }
 
 function aiFallbackLabel(reason) {

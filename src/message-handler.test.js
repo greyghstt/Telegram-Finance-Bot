@@ -228,7 +228,7 @@ describe("message handler", () => {
     assert.equal(result.categories.length, 2);
     assert.equal(result.recentTransactions.length, 2);
     assert.equal(result.ai.reason, "ai_disabled");
-    assert.match(result.reply, /Insight keuangan/);
+    assert.match(result.reply, /Ringkasan keuangan/);
     assert.match(result.reply, /ringkasan manual/);
     assert.match(result.reply, /Saldo: Rp\u00a080.000/);
   });
@@ -246,7 +246,9 @@ describe("message handler", () => {
     });
 
     assert.equal(result.command, "insight");
-    assert.equal(result.reply, "AI membaca 1 transaksi.");
+    assert.match(result.reply, /Ringkasan keuangan/);
+    assert.match(result.reply, /Insight AI/);
+    assert.match(result.reply, /AI membaca 1 transaksi/);
   });
 
   it("answers finance questions with code-calculated context and AI text", async () => {
