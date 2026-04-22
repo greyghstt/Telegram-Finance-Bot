@@ -119,6 +119,47 @@ describe("message handler", () => {
     assert.match(result.reply, /transport/);
   });
 
+  it("returns a read-only manual insight fallback when AI is disabled", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "+100k refund");
+    await handleMessage(database, "-20k makan");
+
+    const result = await handleMessage(database, "insight", {
+      generateFinanceInsight: async (data) => ({
+        ok: false,
+        fallback: true,
+        reason: "ai_disabled",
+        data,
+      }),
+    });
+
+    assert.equal(result.command, "insight");
+    assert.equal(result.summary.balance, 80000);
+    assert.equal(result.categories.length, 2);
+    assert.equal(result.recentTransactions.length, 2);
+    assert.equal(result.ai.reason, "ai_disabled");
+    assert.match(result.reply, /Insight keuangan/);
+    assert.match(result.reply, /ringkasan manual/);
+    assert.match(result.reply, /Saldo: Rp\u00a080.000/);
+  });
+
+  it("uses AI insight content when generation succeeds", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-20k makan");
+
+    const result = await handleMessage(database, "analisa", {
+      generateFinanceInsight: async (data) => ({
+        ok: true,
+        content: `AI membaca ${data.summary.transactionCount} transaksi.`,
+      }),
+    });
+
+    assert.equal(result.command, "insight");
+    assert.equal(result.reply, "AI membaca 1 transaksi.");
+  });
+
   it("includes local timestamps in export csv", async () => {
     const database = await createTestDatabase();
 
