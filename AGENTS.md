@@ -61,6 +61,109 @@ Production deployment:
 vercel.cmd deploy --prod --yes
 ```
 
+## Relevant Skills And Plugins
+
+Codex CLI should use skills and plugins intentionally. Load only the skills
+needed for the current task, then keep the change focused.
+
+Use these skills when relevant:
+
+- `docs-workflow`: any Markdown, README, runbook, plan, or agent guide change.
+- `javascript-typescript`: Node.js, ESM modules, parser, service, and test work.
+- `backend-development`: API endpoints, webhook flow, service boundaries, and
+  server-side behavior.
+- `database-design`: schema changes, migrations, indexes, and data modeling.
+- `supabase`: Supabase CLI, Postgres migrations, pgvector, RLS, and production
+  database work.
+- `security-compliance`: secrets, token handling, webhook hardening, access
+  control, or public-repo readiness.
+- `senior-devops`: deployment planning, rollback, CI, observability, and
+  production readiness.
+- `bug-triage`: regressions, failing tests, broken webhook, or production bugs.
+- `code-reviewer`: review risky changes before deploy or before public release.
+
+Use plugin-backed capabilities when relevant:
+
+- Vercel plugin:
+  - `vercel:vercel-cli` for `vercel.cmd` operations.
+  - `vercel:env-vars` for Vercel environment variable changes.
+  - `vercel:vercel-functions` for webhook/function runtime behavior.
+  - `vercel:deployments-cicd` for preview and production deployment flow.
+  - `vercel:observability` for logs and runtime checks.
+- GitHub plugin:
+  - `github:github` for repository orientation and metadata.
+  - `github:yeet` only when publishing a branch or PR is explicitly needed.
+  - `github:gh-fix-ci` when GitHub Actions checks fail.
+- Build Web Apps plugin:
+  - `build-web-apps:supabase-postgres-best-practices` for Postgres query and
+    schema review.
+
+When adding SumoPod AI, preferred skill order:
+
+1. `security-compliance` for key/env handling and logging rules.
+2. `backend-development` plus `javascript-typescript` for the service design.
+3. `docs-workflow` for README, plan, runbook, and `.env.example`.
+4. `senior-devops` plus Vercel plugin skills for env and deploy steps.
+
+## Commit Strategy
+
+Prefer small, meaningful commits. The goal is a useful GitHub history, not one
+large "everything changed" commit.
+
+Rules:
+
+- Commit after each coherent unit of work.
+- Keep each commit reviewable, ideally one feature slice or one concern.
+- Do not mix docs, dependency installation, parser changes, database changes,
+  and deployment changes in one commit unless the change is tiny.
+- Run the relevant tests before each code commit.
+- Run a secret scan before commits that touch env, AI, Telegram, Vercel, or
+  Supabase code.
+- It is okay to have many commits when each commit tells a clear story.
+- Do not create fake/no-op commits just to increase commit count.
+
+Suggested AI integration commit slices:
+
+1. `docs: plan AI integration`
+   - `docs/PROJECT_PLAN.md`
+   - `AGENTS.md`
+   - `README.md` if needed
+2. `chore: add AI configuration placeholders`
+   - `.env.example`
+   - config helpers if needed
+3. `chore: install OpenAI-compatible SDK`
+   - `package.json`
+   - `package-lock.json`
+4. `feat: add AI service foundation`
+   - `src/ai-service.js`
+   - focused tests
+5. `feat: add insight command parser`
+   - `src/parser.js`
+   - parser tests
+6. `feat: add AI insight response`
+   - `src/message-handler.js`
+   - message handler tests
+7. `feat: expose insight in Telegram menu`
+   - `src/telegram-service.js`
+   - `scripts/setup-telegram-webhook.js`
+   - Telegram service tests
+8. `docs: document AI setup and operations`
+   - `README.md`
+   - `docs/RUNBOOK.md`
+   - `docs/LOCAL_TESTING.md` if needed
+9. `deploy: enable AI insight environment`
+   - only if environment/deploy metadata changes are committed
+
+Suggested commit message style:
+
+```text
+docs: update agent guide
+chore: add AI env placeholders
+feat: add AI insight service
+test: cover AI disabled fallback
+fix: handle SumoPod timeout
+```
+
 ## Repository Map
 
 ```text
