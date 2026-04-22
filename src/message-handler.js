@@ -7,6 +7,7 @@ import {
   saveTransactions,
   searchTransactions,
 } from "./database.js";
+import { generateFinanceInsight } from "./ai-service.js";
 import { parseInput } from "./parser.js";
 
 const JAKARTA_TIME_ZONE = "Asia/Jakarta";
@@ -83,6 +84,8 @@ export async function handleCommand(database, command, options = {}) {
       return buildHistoryResponse(database);
     case "category_report":
       return buildCategoryReportResponse(database);
+    case "insight":
+      return buildInsightResponse(database, options);
     case "delete_last":
       return buildDeleteLastResponse(database);
     case "export":
@@ -281,6 +284,93 @@ async function buildCategoryReportResponse(database) {
     categories,
     reply: lines.join("\n"),
   };
+}
+
+async function buildInsightResponse(database, options) {
+  const data = await buildInsightData(database);
+  const insightGenerator = options.generateFinanceInsight ?? generateFinanceInsight;
+  const aiResult = await insightGenerator(data);
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "insight",
+    summary: data.summary,
+    categories: data.categories,
+    recentTransactions: data.recentTransactions,
+    ai: aiResult,
+    reply: aiResult.ok ? aiResult.content : buildManualInsightReply(data, aiResult.reason),
+  };
+}
+
+async function buildInsightData(database) {
+  const periodLabel = "semua waktu";
+  const summary = await getSummary(database);
+  const categories = await getCategorySummary(database, { limit: 5 });
+  const recentTransactions = await listTransactions(database, { limit: 5 });
+
+  return {
+    periodLabel,
+    summary,
+    categories,
+    recentTransactions: recentTransactions.map((transaction) => ({
+      type: transaction.type,
+      amount: transaction.amount,
+      note: transaction.note,
+      category: transaction.category,
+      createdAt: transaction.createdAt,
+    })),
+  };
+}
+
+function buildManualInsightReply(data, reason) {
+  const lines = [
+    "Insight keuangan",
+    "",
+    aiFallbackLabel(reason),
+    "",
+    `Periode: ${data.periodLabel}`,
+    `Saldo: ${formatRupiah(data.summary.balance)}`,
+    `Masuk: ${formatRupiah(data.summary.totalIncome)}`,
+    `Keluar: ${formatRupiah(data.summary.totalExpense)}`,
+    `Transaksi: ${data.summary.transactionCount}`,
+  ];
+
+  if (data.categories.length > 0) {
+    lines.push("");
+    lines.push("Kategori terbesar:");
+    for (const category of data.categories) {
+      const amount = category.totalExpense || category.totalIncome;
+      lines.push(`- ${category.category}: ${formatRupiah(amount)} (${category.transactionCount} transaksi)`);
+    }
+  }
+
+  if (data.recentTransactions.length > 0) {
+    lines.push("");
+    lines.push("Transaksi terakhir:");
+    for (const transaction of data.recentTransactions) {
+      lines.push(`- ${formatTransaction(transaction, { includeTimestamp: true })}`);
+    }
+  }
+
+  if (data.summary.transactionCount === 0) {
+    lines.push("");
+    lines.push("Belum ada data transaksi untuk dianalisis.");
+  }
+
+  return lines.join("\n");
+}
+
+function aiFallbackLabel(reason) {
+  if (reason === "ai_disabled") {
+    return "AI belum aktif, jadi ini ringkasan manual.";
+  }
+
+  if (reason === "missing_api_key") {
+    return "AI belum punya API key, jadi ini ringkasan manual.";
+  }
+
+  return "AI sedang tidak bisa dipakai, jadi ini ringkasan manual.";
 }
 
 async function buildDeleteLastResponse(database) {
