@@ -27,6 +27,14 @@ export async function answerFinanceQuestion(question, data, options = {}) {
   });
 }
 
+export async function generateBudgetSuggestion(data, options = {}) {
+  return createChatCompletion({
+    data,
+    options,
+    messageBuilder: buildBudgetSuggestionMessages,
+  });
+}
+
 async function createChatCompletion({ data, options, messageBuilder }) {
   const env = options.env ?? process.env;
   const config = readAiConfig(env);
@@ -129,6 +137,26 @@ function buildFinanceQuestionMessages(data) {
   ];
 }
 
+function buildBudgetSuggestionMessages(data) {
+  return [
+    {
+      role: "system",
+      content: [
+        "Kamu adalah asisten budget pribadi.",
+        "Jawab dalam Bahasa Indonesia yang singkat untuk Telegram.",
+        "Gunakan hanya progress budget dan ringkasan transaksi yang diberikan.",
+        "Jangan mengarang nominal, kategori, tanggal, atau budget.",
+        "Jika data belum cukup, katakan data belum cukup.",
+        "Berikan saran praktis dan hati-hati, bukan nasihat finansial absolut.",
+      ].join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify(toSafeBudgetPayload(data)),
+    },
+  ];
+}
+
 function toSafeInsightPayload(data) {
   return {
     periodLabel: String(data?.periodLabel ?? "semua waktu"),
@@ -179,6 +207,28 @@ function toSafeQuestionPayload(data) {
     },
     matchedTerms: Array.isArray(data?.matchedTerms)
       ? data.matchedTerms.slice(0, 5).map((term) => String(term))
+      : [],
+  };
+}
+
+function toSafeBudgetPayload(data) {
+  return {
+    periodLabel: String(data?.periodLabel ?? "bulan ini"),
+    summary: {
+      balance: toInteger(data?.summary?.balance),
+      totalIncome: toInteger(data?.summary?.totalIncome),
+      totalExpense: toInteger(data?.summary?.totalExpense),
+      transactionCount: toInteger(data?.summary?.transactionCount),
+    },
+    budgets: Array.isArray(data?.budgets)
+      ? data.budgets.slice(0, 10).map((budget) => ({
+          category: String(budget.category ?? "other"),
+          monthlyLimit: toInteger(budget.monthlyLimit),
+          spent: toInteger(budget.spent),
+          remaining: toInteger(budget.remaining),
+          percent: toInteger(budget.percent),
+          status: String(budget.status ?? "ok"),
+        }))
       : [],
   };
 }

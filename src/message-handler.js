@@ -1,14 +1,23 @@
 import {
+  clearBudgets,
   deleteLastTransaction,
+  deleteBudget,
   deleteTransactionById,
+  getBudgetProgress,
   getCategorySummary,
   getSummary,
+  listBudgets,
   listTransactions,
+  saveBudget,
   saveTransactions,
   searchTransactions,
 } from "./database.js";
-import { answerFinanceQuestion, generateFinanceInsight } from "./ai-service.js";
-import { parseInput } from "./parser.js";
+import {
+  answerFinanceQuestion,
+  generateBudgetSuggestion,
+  generateFinanceInsight,
+} from "./ai-service.js";
+import { parseAmount, parseInput } from "./parser.js";
 
 const JAKARTA_TIME_ZONE = "Asia/Jakarta";
 const TRANSACTION_TIME_FORMATTER = new Intl.DateTimeFormat("id-ID", {
@@ -114,6 +123,26 @@ async function handleVariableCommand(database, command, options) {
 
   if (command.command === "finance_question") {
     return buildFinanceQuestionResponse(database, command.question, options);
+  }
+
+  if (command.command === "budget_list") {
+    return buildBudgetListResponse(database, options);
+  }
+
+  if (command.command === "budget_set") {
+    return buildBudgetSetResponse(database, command, options);
+  }
+
+  if (command.command === "budget_delete") {
+    return buildBudgetDeleteResponse(database, command.category, options);
+  }
+
+  if (command.command === "budget_reset") {
+    return buildBudgetResetInstructionResponse(database, options);
+  }
+
+  if (command.command === "budget_suggestion") {
+    return buildBudgetSuggestionResponse(database, options);
   }
 
   return {
@@ -325,6 +354,108 @@ async function buildFinanceQuestionResponse(database, question, options) {
   };
 }
 
+async function buildBudgetListResponse(database, options) {
+  const data = await buildBudgetData(database, options);
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "budget_list",
+    budgets: data.budgets,
+    reply: buildBudgetProgressReply(data),
+  };
+}
+
+async function buildBudgetSetResponse(database, command, options) {
+  const amount = parseBudgetAmount(command.amountText);
+  if (!amount) {
+    return {
+      ok: false,
+      kind: "error",
+      command: "budget_set",
+      reply: "Nominal budget belum valid. Contoh: budget food 700k",
+    };
+  }
+
+  const budget = await saveBudget(database, {
+    chatId: getChatId(options),
+    category: command.category,
+    monthlyLimit: amount,
+  });
+  const data = await buildBudgetData(database, options);
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "budget_set",
+    budget,
+    budgets: data.budgets,
+    reply: [
+      `Budget ${budget.category} disimpan.`,
+      "",
+      `${budget.category}: ${formatRupiah(budget.monthlyLimit)} per bulan`,
+      "",
+      buildBudgetProgressReply(data),
+    ].join("\n"),
+  };
+}
+
+async function buildBudgetDeleteResponse(database, category, options) {
+  const deleted = await deleteBudget(database, getChatId(options), category);
+
+  if (!deleted) {
+    return {
+      ok: false,
+      kind: "error",
+      command: "budget_delete",
+      reply: `Budget ${category} tidak ditemukan.`,
+    };
+  }
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "budget_delete",
+    deleted,
+    reply: `Budget ${deleted.category} dihapus.`,
+  };
+}
+
+async function buildBudgetResetInstructionResponse(database, options) {
+  const budgets = await listBudgets(database, getChatId(options));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "budget_reset",
+    budgets,
+    reply: [
+      "Reset budget butuh konfirmasi.",
+      "",
+      `Jumlah budget: ${budgets.length}`,
+      "Di Telegram, pakai reset budget lalu balas:",
+      "YA RESET BUDGET",
+      "",
+      "Ketik /batal untuk membatalkan.",
+    ].join("\n"),
+  };
+}
+
+async function buildBudgetSuggestionResponse(database, options) {
+  const data = await buildBudgetData(database, options);
+  const suggestionGenerator = options.generateBudgetSuggestion ?? generateBudgetSuggestion;
+  const aiResult = await suggestionGenerator(data);
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "budget_suggestion",
+    budgets: data.budgets,
+    ai: aiResult,
+    reply: aiResult.ok ? aiResult.content : buildManualBudgetSuggestionReply(data, aiResult.reason),
+  };
+}
+
 async function buildInsightData(database) {
   const periodLabel = "semua waktu";
   const summary = await getSummary(database);
@@ -366,6 +497,19 @@ async function buildFinanceQuestionData(database, question, options) {
     matchingTransactions: matchingTransactions.map(toAiTransaction),
     matchingSummary,
     matchedTerms,
+  };
+}
+
+async function buildBudgetData(database, options) {
+  const range = getPeriodRange("month", options.now);
+  const summary = await getSummary(database, range);
+  const budgets = await getBudgetProgress(database, getChatId(options), range);
+
+  return {
+    periodLabel: "bulan ini",
+    range,
+    summary,
+    budgets,
   };
 }
 
@@ -442,6 +586,61 @@ function buildManualQuestionReply(question, data, reason) {
       const amount = category.totalExpense || category.totalIncome;
       lines.push(`- ${category.category}: ${formatRupiah(amount)}`);
     }
+  }
+
+  return lines.join("\n");
+}
+
+function buildBudgetProgressReply(data) {
+  const lines = ["Progress budget", "", `Periode: ${data.periodLabel}`];
+
+  if (data.budgets.length === 0) {
+    lines.push("", "Belum ada budget. Contoh: budget food 700k");
+    return lines.join("\n");
+  }
+
+  lines.push("");
+  for (const budget of data.budgets) {
+    lines.push(
+      `${budget.category}: ${formatRupiah(budget.spent)} / ${formatRupiah(budget.monthlyLimit)}, ${budget.percent}%`,
+    );
+
+    if (budget.status === "over") {
+      lines.push(`! ${budget.category} sudah melewati budget.`);
+    } else if (budget.status === "warning") {
+      lines.push(`! ${budget.category} sudah mencapai 80% budget.`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function buildManualBudgetSuggestionReply(data, reason) {
+  const lines = ["Saran budget", "", aiFallbackLabel(reason)];
+
+  if (data.budgets.length === 0) {
+    lines.push("", "Belum ada budget. Mulai dari kategori terbesar, misalnya: budget food 700k");
+    return lines.join("\n");
+  }
+
+  const over = data.budgets.filter((budget) => budget.status === "over");
+  const warning = data.budgets.filter((budget) => budget.status === "warning");
+
+  if (over.length > 0) {
+    lines.push("");
+    lines.push(`Prioritas: kurangi ${over.map((budget) => budget.category).join(", ")} karena sudah melewati budget.`);
+  } else if (warning.length > 0) {
+    lines.push("");
+    lines.push(`Perlu dijaga: ${warning.map((budget) => budget.category).join(", ")} sudah mendekati batas.`);
+  } else {
+    lines.push("");
+    lines.push("Budget bulan ini masih aman berdasarkan data yang tercatat.");
+  }
+
+  lines.push("");
+  lines.push("Ringkasan:");
+  for (const budget of data.budgets.slice(0, 5)) {
+    lines.push(`${budget.category}: ${budget.percent}%`);
   }
 
   return lines.join("\n");
@@ -628,6 +827,35 @@ function buildHelpResponse() {
 
 function parseVariableCommand(message) {
   const text = String(message ?? "").trim();
+  const budgetSetMatch = text.match(/^\/?budget\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i);
+  if (budgetSetMatch) {
+    return {
+      command: "budget_set",
+      category: budgetSetMatch[1].trim(),
+      amountText: budgetSetMatch[2].trim(),
+    };
+  }
+
+  if (/^\/?(?:budget|cek budget)$/i.test(text)) {
+    return { command: "budget_list" };
+  }
+
+  const budgetDeleteMatch = text.match(/^\/?(?:hapus|delete)\s+budget\s+([a-zA-Z0-9_-]{2,32})$/i);
+  if (budgetDeleteMatch) {
+    return {
+      command: "budget_delete",
+      category: budgetDeleteMatch[1].trim(),
+    };
+  }
+
+  if (/^\/?reset\s+budget$/i.test(text)) {
+    return { command: "budget_reset" };
+  }
+
+  if (/^\/?saran\s+budget$/i.test(text)) {
+    return { command: "budget_suggestion" };
+  }
+
   const questionMatch = text.match(/^\/?(?:tanya|ask)\s+(.{3,240})$/i);
   if (questionMatch) {
     return {
@@ -760,6 +988,20 @@ function toAiTransaction(transaction) {
     category: transaction.category,
     createdAt: transaction.createdAt,
   };
+}
+
+function parseBudgetAmount(value) {
+  const match = String(value ?? "").match(/(?:rp\.?\s*)?(\d+(?:[.,]\d{3})*(?:[.,]\d+)?|\d+)\s*(ribu|rebu|rb|r|k|juta|jt|mio|m)?/i);
+  if (!match) {
+    return 0;
+  }
+
+  const amount = parseAmount(match[1], match[2]);
+  return Number.isSafeInteger(amount) && amount > 0 ? amount : 0;
+}
+
+function getChatId(options) {
+  return String(options.chatId ?? "default");
 }
 
 function formatTransaction(transaction, { includeTimestamp = false } = {}) {

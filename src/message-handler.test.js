@@ -208,6 +208,55 @@ describe("message handler", () => {
     assert.match(result.reply, /Kategori terbesar/);
   });
 
+  it("sets and shows monthly budget progress", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-450k makan kategori food");
+    const saved = await handleMessage(database, "budget food 700k", { chatId: 123 });
+    const listed = await handleMessage(database, "cek budget", { chatId: 123 });
+
+    assert.equal(saved.command, "budget_set");
+    assert.match(saved.reply, /Budget food disimpan/);
+    assert.equal(listed.budgets[0].category, "food");
+    assert.equal(listed.budgets[0].spent, 450000);
+    assert.equal(listed.budgets[0].percent, 64);
+    assert.match(listed.reply, /Rp\u00a0450.000 \/ Rp\u00a0700.000, 64%/);
+  });
+
+  it("deletes budgets and requires reset instructions", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "budget food 700k", { chatId: 123 });
+
+    const deleted = await handleMessage(database, "hapus budget food", { chatId: 123 });
+    const reset = await handleMessage(database, "reset budget", { chatId: 123 });
+
+    assert.equal(deleted.command, "budget_delete");
+    assert.match(deleted.reply, /Budget food dihapus/);
+    assert.equal(reset.command, "budget_reset");
+    assert.match(reset.reply, /butuh konfirmasi/);
+  });
+
+  it("returns manual budget suggestion fallback", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-90k makan kategori food");
+    await handleMessage(database, "budget food 100k", { chatId: 123 });
+
+    const result = await handleMessage(database, "saran budget", {
+      chatId: 123,
+      generateBudgetSuggestion: async () => ({
+        ok: false,
+        fallback: true,
+        reason: "ai_disabled",
+      }),
+    });
+
+    assert.equal(result.command, "budget_suggestion");
+    assert.match(result.reply, /Saran budget/);
+    assert.match(result.reply, /food sudah mendekati batas/);
+  });
+
   it("includes local timestamps in export csv", async () => {
     const database = await createTestDatabase();
 
