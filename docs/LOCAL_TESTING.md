@@ -22,6 +22,8 @@ Covered areas:
 - Transaction saving.
 - Balance summary.
 - Commands such as `saldo`, `riwayat`, `hari ini`, and `hapus terakhir`.
+- Read-only `insight` command fallback behavior when AI is disabled or
+  unavailable.
 - Telegram service behavior, including database-backed income/expense input
   modes.
 - Chat ID access control.
@@ -113,6 +115,22 @@ Invoke-RestMethod `
   -ContentType "application/json" `
   -Body '{"message":"riwayat"}'
 ```
+
+### Insight
+
+With `AI_ENABLED=false`, or without `AI_API_KEY`, the command returns a manual
+Indonesian summary and does not need network access:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"insight"}'
+```
+
+To test SumoPod locally, set the AI variables in local `.env` only. The command
+sends summarized data, not a full transaction dump.
 
 ### Delete Latest Transaction
 

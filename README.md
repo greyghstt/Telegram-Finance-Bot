@@ -25,6 +25,8 @@ Main features:
 - Delete the latest transaction or delete by ID.
 - Search transactions.
 - Category summary.
+- Read-only `/insight` summary with optional SumoPod AI explanation and manual
+  fallback.
 - Export CSV as a Telegram document.
 - Reset all transactions with `YA RESET` confirmation.
 - Telegram webhook protected by `TELEGRAM_WEBHOOK_SECRET`.
@@ -46,6 +48,7 @@ Telegram-Finance-Bot/
     local-chat-scenario.js
     setup-telegram-webhook.js
   src/
+    ai-service.js
     database.js
     message-handler.js
     parser.js
@@ -70,6 +73,14 @@ TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TELEGRAM_WEBHOOK_URL=
 TELEGRAM_WEBHOOK_SECRET=
 ADMIN_API_TOKEN=
+AI_ENABLED=false
+AI_PROVIDER=sumopod
+AI_API_KEY=
+AI_BASE_URL=https://ai.sumopod.com/v1
+AI_MODEL=MiniMax-M2.7-highspeed
+AI_TEMPERATURE=0.2
+AI_MAX_TOKENS=500
+AI_TIMEOUT_MS=15000
 ```
 
 Notes:
@@ -79,6 +90,10 @@ Notes:
   passwords, or private chat IDs.
 - If a Supabase password was ever committed, reset it in Supabase Dashboard and
   update `DATABASE_URL`.
+- AI is optional. Leave `AI_ENABLED=false` to use the manual `/insight`
+  fallback without an API key.
+- To test SumoPod locally, set `AI_ENABLED=true` and put the real SumoPod key
+  only in local `.env`.
 
 ## Local Development
 
@@ -186,6 +201,7 @@ The Telegram commands remain Indonesian for now:
 /bulanini
 /riwayat
 /kategori
+/insight
 /cari bensin
 /hapusterakhir
 /export
@@ -206,6 +222,7 @@ bulan ini
 tahun ini
 riwayat
 kategori
+insight
 cari bensin
 hapus terakhir
 hapus 12
@@ -219,6 +236,20 @@ Input modes:
 - `/pemasukan`, then the next message can be `500k gaji`.
 - `/pengeluaran`, then the next message can be `20k bensin`.
 - `/batal` cancels the active input mode.
+
+Read-only AI insight:
+
+```text
+/insight
+insight
+ai insight
+analisis
+analisa
+```
+
+The command sends only summarized finance data to AI: balance, income, expense,
+transaction count, top categories, and a few recent transactions. If AI is
+disabled or unavailable, the bot replies with a manual Indonesian summary.
 
 Reset flow:
 

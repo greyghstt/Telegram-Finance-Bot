@@ -129,6 +129,8 @@ Free-form user text
 20. MIT license.
 21. Public-ready clean Git history.
 22. English repository and documentation naming.
+23. SumoPod-compatible AI service foundation with safe fallback behavior.
+24. Read-only `/insight` command for summarized finance insight.
 
 ## Database
 
@@ -194,6 +196,7 @@ Visible Telegram UX remains Indonesian:
 /bulanini
 /riwayat
 /kategori
+/insight
 /hapusterakhir
 /export
 /reset
@@ -210,6 +213,7 @@ bulan ini
 tahun ini
 riwayat
 kategori
+insight
 cari bensin
 hapus terakhir
 hapus 12
@@ -716,12 +720,10 @@ Current non-AI backlog:
 
 AI backlog:
 
-1. Add SumoPod AI foundation.
-2. Add read-only `/insight`.
-3. Compare SumoPod model candidates.
-4. Add finance Q&A.
-5. Add AI natural parser with validated auto-save.
-6. Add budget assistant.
+1. Compare SumoPod model candidates.
+2. Add finance Q&A.
+3. Add AI natural parser with validated auto-save.
+4. Add budget assistant.
 
 Optional future improvements:
 

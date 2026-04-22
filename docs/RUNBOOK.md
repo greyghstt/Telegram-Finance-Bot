@@ -56,6 +56,30 @@ Invoke-RestMethod `
 
 If it returns `401`, check the local or Vercel `ADMIN_API_TOKEN`.
 
+## Troubleshoot AI Insight
+
+The `/insight` command is read-only. It should still reply with a manual
+summary when AI is disabled, the key is missing, or SumoPod is unavailable.
+
+Local checks:
+
+```powershell
+npm.cmd test
+npm.cmd run test:local-chat
+```
+
+Configuration checks:
+
+- `AI_ENABLED=false` should use the manual fallback.
+- `AI_ENABLED=true` also requires `AI_API_KEY`.
+- `AI_BASE_URL` should normally be `https://ai.sumopod.com/v1`.
+- `AI_MODEL` should start as `MiniMax-M2.7-highspeed`.
+- Never print or paste `AI_API_KEY` in logs, screenshots, issues, or commits.
+
+If `/insight` returns only the manual fallback while AI should be active, check
+for a missing key, provider timeout, exhausted provider balance, or invalid
+model name. Existing non-AI commands should continue to work.
+
 ## Deploy and Rollback
 
 Production deploy:
