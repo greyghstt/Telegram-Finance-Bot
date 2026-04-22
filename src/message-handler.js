@@ -794,7 +794,7 @@ function buildTransactionClarificationReply(candidates) {
   const lines = [
     "Transaksi masih ambigu.",
     "",
-    "Pilih pemasukan, pengeluaran, atau batal untuk item ini:",
+    "Pilih /pemasukan atau /pengeluaran, lalu kirim ulang item ini:",
   ];
 
   candidates.slice(0, 3).forEach((candidate, index) => {
@@ -802,7 +802,6 @@ function buildTransactionClarificationReply(candidates) {
   });
 
   lines.push("");
-  lines.push("Ketik /pemasukan, /pengeluaran, atau /batal.");
   lines.push("Belum ada transaksi yang disimpan.");
 
   return lines.join("\n");
