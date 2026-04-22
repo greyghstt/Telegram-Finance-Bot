@@ -24,6 +24,7 @@ Covered areas:
 - Commands such as `saldo`, `riwayat`, `hari ini`, and `hapus terakhir`.
 - Read-only `insight` command fallback behavior when AI is disabled or
   unavailable.
+- Finance Q&A, budget progress, and budget suggestion fallback behavior.
 - Telegram service behavior, including database-backed income/expense input
   modes.
 - Chat ID access control.
@@ -56,6 +57,10 @@ hari ini
 hapus terakhir
 saldo
 insight
+tanya bulan ini boros di mana?
+budget food 100k
+cek budget
+saran budget
 help
 ```
 
@@ -132,6 +137,51 @@ Invoke-RestMethod `
 
 To test SumoPod locally, set the AI variables in local `.env` only. The command
 sends summarized data, not a full transaction dump.
+
+### Finance Q&A
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"tanya bulan ini boros di mana?"}'
+```
+
+The app computes the summary, categories, recent transactions, and matching
+transactions before calling AI. Tests stub this behavior and do not need a real
+API key.
+
+### Budget
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"budget food 700k"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"cek budget"}'
+```
+
+### Natural Input
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"tadi beli bensin 20 ribu dan makan ayam 15 ribu"}'
+```
+
+With AI disabled or unavailable, this falls back to manual format guidance.
+With AI enabled, candidates are saved only after app-side validation.
 
 ### Delete Latest Transaction
 

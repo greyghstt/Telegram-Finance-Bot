@@ -131,6 +131,9 @@ Free-form user text
 22. English repository and documentation naming.
 23. SumoPod-compatible AI service foundation with safe fallback behavior.
 24. Read-only `/insight` command for summarized finance insight.
+25. Finance Q&A that explains code-calculated summaries.
+26. Monthly budget commands with AI/manual suggestions.
+27. Guardrailed AI natural transaction extraction.
 
 ## Database
 
@@ -141,6 +144,7 @@ Tables:
 ```text
 transactions
 chat_sessions
+budgets
 ```
 
 `transactions` stores:
@@ -173,11 +177,24 @@ created_at
 updated_at
 ```
 
+`budgets` stores:
+
+```text
+id
+chat_id
+category
+period
+monthly_limit
+created_at
+updated_at
+```
+
 Migrations:
 
 ```text
 supabase/migrations/20260420075334_init_keuangan_schema.sql
 supabase/migrations/20260420100000_add_chat_session_pending_action.sql
+supabase/migrations/20260422235000_add_budgets.sql
 ```
 
 The migration filenames keep their original names to preserve migration
@@ -323,18 +340,13 @@ Reasoning:
 Fallback candidates:
 
 ```text
-GLM-4.7
-GLM-5.1
-GPT-5-nano
+No fallback model is configured yet.
 ```
 
 Decision rules:
 
-- Use `MiniMax-M2.7-highspeed` first for `/insight`.
-- Test `GLM-4.7`, `GLM-5.1`, and `GPT-5-nano` with the same prompts.
-- Choose the best default based on Indonesian quality, JSON consistency,
-  latency, and real cost.
-- Keep `GPT-5-nano` as a stable fallback candidate if discount pricing changes.
+- Use `MiniMax-M2.7-highspeed` for all AI assistant features.
+- Do not add model comparison scripts until there is a specific need.
 
 ## AI Environment Variables
 
@@ -354,7 +366,7 @@ AI_TIMEOUT_MS=25000
 `.env.example` should contain safe placeholders only:
 
 ```env
-AI_ENABLED=false
+AI_ENABLED=true
 AI_PROVIDER=sumopod
 AI_API_KEY=
 AI_BASE_URL=https://ai.sumopod.com/v1
@@ -496,44 +508,7 @@ Done when:
 - `/insight` returns useful output.
 - SumoPod spending remains within budget.
 
-### Phase 4: Model Comparison
-
-Goal: pick the best model using real prompts and real costs.
-
-Test candidates:
-
-```text
-MiniMax-M2.7-highspeed
-GLM-4.7
-GLM-5.1
-GPT-5-nano
-```
-
-Evaluation prompts:
-
-1. Small month with only a few transactions.
-2. Month with high food spending.
-3. Month with transport spike.
-4. Month with low data quality.
-5. Indonesian finance question.
-6. Structured JSON draft extraction sample.
-
-Score each model on:
-
-- Indonesian clarity.
-- Follows "do not invent amounts".
-- Conciseness.
-- Latency.
-- Cost.
-- JSON consistency for future parser work.
-
-Done when:
-
-- Default model is documented.
-- Fallback model is documented.
-- Prompt examples are saved in docs or tests.
-
-### Phase 5: Finance Q&A
+### Phase 4: Finance Q&A
 
 Goal: answer natural finance questions without letting AI calculate raw
 database truth by itself.
@@ -559,7 +534,7 @@ Done when:
 - Unknown questions get a safe fallback.
 - Responses remain short enough for Telegram.
 
-### Phase 6: AI Natural Input Drafts
+### Phase 5: AI Natural Input Drafts
 
 Goal: allow free-form text to become saved transactions when the AI output is
 simple, validated, and unambiguous.
@@ -624,7 +599,7 @@ Implementation notes:
 - Use pending input mode before AI when the user explicitly chose a type.
 - Use AI only when deterministic parsing cannot confidently decide.
 
-### Phase 7: Budget Assistant
+### Phase 6: Budget Assistant
 
 Goal: add optional budget tracking and AI-supported advice.
 
@@ -720,10 +695,9 @@ Current non-AI backlog:
 
 AI backlog:
 
-1. Compare SumoPod model candidates.
-2. Add finance Q&A.
-3. Add AI natural parser with validated auto-save.
-4. Add budget assistant.
+1. Improve clarification flow for ambiguous AI transaction candidates.
+2. Add budget editing shortcuts if needed.
+3. Add richer monthly reports.
 
 Optional future improvements:
 

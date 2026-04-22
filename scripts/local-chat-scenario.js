@@ -19,6 +19,10 @@ const messages = [
   "hapus terakhir",
   "saldo",
   "insight",
+  "tanya bulan ini boros di mana?",
+  "budget food 100k",
+  "cek budget",
+  "saran budget",
   "help",
 ];
 
@@ -35,7 +39,7 @@ try {
   const results = [];
 
   for (const message of messages) {
-    const result = await handleMessage(database, message, insightTestOptions(message));
+    const result = await handleMessage(database, message, testOptions(message));
     results.push(result);
 
     console.log(`\nYou:\n${message}`);
@@ -44,7 +48,7 @@ try {
     console.log("-".repeat(48));
   }
 
-  const finalBalance = results.at(-2)?.summary?.balance;
+  const finalBalance = results.findLast((result) => result.summary)?.summary?.balance;
 
   assert.equal(finalBalance, 1953000);
   assert.equal(results.every((result) => result.ok), true);
@@ -68,16 +72,19 @@ function cleanupDatabase() {
   }
 }
 
-function insightTestOptions(message) {
-  if (message !== "insight") {
-    return {};
-  }
-
+function testOptions(message) {
   return {
-    generateFinanceInsight: async () => ({
-      ok: false,
-      fallback: true,
-      reason: "ai_disabled",
-    }),
+    generateFinanceInsight: message === "insight" ? disabledAiResult : undefined,
+    answerFinanceQuestion: message.startsWith("tanya ") ? disabledAiResult : undefined,
+    generateBudgetSuggestion: message === "saran budget" ? disabledAiResult : undefined,
+    disableAiExtraction: true,
+  };
+}
+
+async function disabledAiResult() {
+  return {
+    ok: false,
+    fallback: true,
+    reason: "ai_disabled",
   };
 }

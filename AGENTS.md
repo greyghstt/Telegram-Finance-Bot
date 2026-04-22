@@ -226,15 +226,13 @@ MiniMax-M2.7-highspeed
 Fallback candidates:
 
 ```text
-GLM-4.7
-GLM-5.1
-GPT-5-nano
+No fallback model is configured yet.
 ```
 
 Expected AI env vars:
 
 ```env
-AI_ENABLED=false
+AI_ENABLED=true
 AI_PROVIDER=sumopod
 AI_API_KEY=
 AI_BASE_URL=https://ai.sumopod.com/v1
@@ -248,10 +246,9 @@ AI must be introduced in this order:
 
 1. AI foundation and safe fallback.
 2. Read-only `/insight`.
-3. Model comparison.
-4. Finance Q&A.
-5. Natural input parser with validated auto-save.
-6. Budget assistant.
+3. Finance Q&A.
+4. Natural input parser with validated auto-save.
+5. Budget assistant.
 
 AI must never:
 

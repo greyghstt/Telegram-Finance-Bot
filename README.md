@@ -25,8 +25,9 @@ Main features:
 - Delete the latest transaction or delete by ID.
 - Search transactions.
 - Category summary.
-- Read-only `/insight` summary with optional SumoPod AI explanation and manual
-  fallback.
+- AI `/insight`, finance Q&A, budget suggestions, and natural transaction
+  extraction through SumoPod with manual fallbacks.
+- Monthly budgets per Telegram chat.
 - Export CSV as a Telegram document.
 - Reset all transactions with `YA RESET` confirmation.
 - Telegram webhook protected by `TELEGRAM_WEBHOOK_SECRET`.
@@ -73,7 +74,7 @@ TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TELEGRAM_WEBHOOK_URL=
 TELEGRAM_WEBHOOK_SECRET=
 ADMIN_API_TOKEN=
-AI_ENABLED=false
+AI_ENABLED=true
 AI_PROVIDER=sumopod
 AI_API_KEY=
 AI_BASE_URL=https://ai.sumopod.com/v1
@@ -90,10 +91,10 @@ Notes:
   passwords, or private chat IDs.
 - If a Supabase password was ever committed, reset it in Supabase Dashboard and
   update `DATABASE_URL`.
-- AI is optional. Leave `AI_ENABLED=false` to use the manual `/insight`
-  fallback without an API key.
-- To test SumoPod locally, set `AI_ENABLED=true` and put the real SumoPod key
-  only in local `.env`.
+- AI is optional at runtime. Leave `AI_ENABLED=false` to use manual fallbacks.
+- To use SumoPod, set `AI_ENABLED=true` and put the real SumoPod key only in
+  local `.env` or Vercel environment variables. Never commit or paste the key.
+- The fixed model target is `MiniMax-M2.7-highspeed`.
 
 ## Local Development
 
@@ -202,6 +203,8 @@ The Telegram commands remain Indonesian for now:
 /riwayat
 /kategori
 /insight
+/tanya bulan ini boros di mana?
+/budget
 /cari bensin
 /hapusterakhir
 /export
@@ -223,6 +226,11 @@ tahun ini
 riwayat
 kategori
 insight
+tanya bulan ini boros di mana?
+budget
+cek budget
+budget food 700k
+saran budget
 cari bensin
 hapus terakhir
 hapus 12
@@ -251,6 +259,44 @@ The command sends only summarized finance data to AI: balance, income, expense,
 transaction count, top categories, and a few recent transactions. If AI is
 disabled or unavailable, the bot replies with a manual Indonesian summary.
 
+Finance Q&A:
+
+```text
+/tanya bulan ini boros di mana?
+tanya berapa total bensin bulan ini?
+tanya kenapa pengeluaran food tinggi?
+```
+
+The app computes the key numbers from the database first. AI only explains the
+computed summary and must not invent amounts.
+
+Budget commands:
+
+```text
+budget
+cek budget
+budget food 700k
+budget transport 300k
+hapus budget food
+reset budget
+saran budget
+```
+
+Budgets are monthly and stored per Telegram chat. Resetting all budgets from
+Telegram requires `YA RESET BUDGET` confirmation.
+
+Natural input:
+
+```text
+tadi beli bensin 20 ribu dan makan ayam 15 ribu
+refund teman 50 ribu
+gaji freelance masuk 1,5 juta
+```
+
+AI may extract transaction candidates, but the app validates every candidate
+before saving. Ambiguous input asks the user to choose a safer flow instead of
+saving.
+
 Reset flow:
 
 1. Send `/reset`.
@@ -269,6 +315,22 @@ Before deploying:
 npm.cmd test
 npm.cmd run test:local-chat
 ```
+
+Set AI env vars for Preview and Production before deploying AI features:
+
+```powershell
+vercel.cmd env add AI_ENABLED production
+vercel.cmd env add AI_PROVIDER production
+vercel.cmd env add AI_API_KEY production
+vercel.cmd env add AI_BASE_URL production
+vercel.cmd env add AI_MODEL production
+vercel.cmd env add AI_TEMPERATURE production
+vercel.cmd env add AI_MAX_TOKENS production
+vercel.cmd env add AI_TIMEOUT_MS production
+```
+
+Repeat for `preview`. If the CLI prompt would expose `AI_API_KEY`, use the
+Vercel Dashboard instead.
 
 Production deploy:
 
