@@ -14,10 +14,11 @@ import {
 } from "./database.js";
 import {
   answerFinanceQuestion,
+  extractTransactionCandidates,
   generateBudgetSuggestion,
   generateFinanceInsight,
 } from "./ai-service.js";
-import { parseAmount, parseInput } from "./parser.js";
+import { parseAmount, parseInput, parseTransactionLine } from "./parser.js";
 
 const JAKARTA_TIME_ZONE = "Asia/Jakarta";
 const TRANSACTION_TIME_FORMATTER = new Intl.DateTimeFormat("id-ID", {
@@ -41,6 +42,11 @@ export async function handleMessage(database, message, options = {}) {
   });
 
   if (!parsed.ok) {
+    const extracted = await tryHandleNaturalTransaction(database, message, parsed, options);
+    if (extracted) {
+      return extracted;
+    }
+
     return {
       ok: false,
       kind: "error",
@@ -318,6 +324,58 @@ async function buildCategoryReportResponse(database) {
     command: "category_report",
     categories,
     reply: lines.join("\n"),
+  };
+}
+
+async function tryHandleNaturalTransaction(database, message, parsed, options) {
+  if (!shouldTryNaturalTransaction(parsed, message, options)) {
+    return null;
+  }
+
+  const extractor = options.extractTransactionCandidates ?? extractTransactionCandidates;
+  const result = await extractor(message, {
+    defaultType: options.defaultTransactionType ?? null,
+  });
+
+  if (!result.ok) {
+    return null;
+  }
+
+  const validation = validateAiTransactionCandidates(result.candidates, message);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      kind: "error",
+      command: "ai_transaction_extract",
+      ai: result,
+      reply: validation.reply,
+    };
+  }
+
+  if (validation.ambiguous.length > 0) {
+    return {
+      ok: true,
+      kind: "clarification",
+      command: "ai_transaction_clarification",
+      pendingClarification: validation.ambiguous,
+      reply: buildTransactionClarificationReply(validation.ambiguous),
+    };
+  }
+
+  const saved = await saveTransactions(database, validation.transactions);
+  const summary = await getSummary(database);
+
+  return {
+    ok: true,
+    kind: "ai_transactions",
+    command: "ai_transaction_extract",
+    saved,
+    summary,
+    reply: [
+      "AI membaca transaksi dan aplikasi berhasil memvalidasi hasilnya.",
+      "",
+      buildSavedReply(saved, summary),
+    ].join("\n"),
   };
 }
 
@@ -646,6 +704,117 @@ function buildManualBudgetSuggestionReply(data, reason) {
   }
 
   return lines.join("\n");
+}
+
+function shouldTryNaturalTransaction(parsed, message, options) {
+  if (options.disableAiExtraction) {
+    return false;
+  }
+
+  const text = String(message ?? "").trim();
+  if (!text || text.startsWith("/") || text.length > 500) {
+    return false;
+  }
+
+  return parsed.error.includes("diawali tanda") || parsed.error.includes("Format pesan belum dikenali");
+}
+
+function validateAiTransactionCandidates(candidates, original) {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return {
+      ok: false,
+      reply: [
+        "Format pesan belum dikenali.",
+        "",
+        "Kalau mau catat manual, pilih /pemasukan atau /pengeluaran lalu kirim nominal dan catatan.",
+      ].join("\n"),
+    };
+  }
+
+  if (candidates.length > 10) {
+    return {
+      ok: false,
+      reply: "Terlalu banyak transaksi dalam satu pesan. Maksimal 10 transaksi.",
+    };
+  }
+
+  const transactions = [];
+  const ambiguous = [];
+
+  for (const candidate of candidates) {
+    const type = candidate?.type;
+    const confidence = Number(candidate?.confidence ?? 0);
+    const amount = Number(candidate?.amount);
+    const note = String(candidate?.note ?? "").trim();
+    const category = normalizeAiCategory(candidate?.category, type);
+
+    if (!Number.isSafeInteger(amount) || amount <= 0 || !note || confidence < 0.75) {
+      return {
+        ok: false,
+        reply: [
+          "AI belum bisa memvalidasi transaksi ini dengan aman.",
+          "",
+          "Coba pakai format manual, misalnya:",
+          "-20k bensin",
+          "+500k gaji",
+        ].join("\n"),
+      };
+    }
+
+    if (type !== "income" && type !== "expense") {
+      ambiguous.push({ amount, note, category, confidence, original });
+      continue;
+    }
+
+    const sign = type === "income" ? "+" : "-";
+    const line = `${sign}${amount} ${note} kategori ${category}`;
+    const parsed = parseTransactionLine(line);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        reply: "AI menghasilkan transaksi yang tidak valid. Tidak ada data yang disimpan.",
+      };
+    }
+
+    transactions.push({
+      ...parsed.transaction,
+      original,
+      confidence: Math.min(parsed.transaction.confidence, confidence),
+    });
+  }
+
+  return {
+    ok: true,
+    transactions,
+    ambiguous,
+  };
+}
+
+function buildTransactionClarificationReply(candidates) {
+  const lines = [
+    "Transaksi masih ambigu.",
+    "",
+    "Pilih pemasukan, pengeluaran, atau batal untuk item ini:",
+  ];
+
+  candidates.slice(0, 3).forEach((candidate, index) => {
+    lines.push(`${index + 1}. ${formatRupiah(candidate.amount)} ${candidate.note} [${candidate.category}]`);
+  });
+
+  lines.push("");
+  lines.push("Ketik /pemasukan, /pengeluaran, atau /batal.");
+  lines.push("Belum ada transaksi yang disimpan.");
+
+  return lines.join("\n");
+}
+
+function normalizeAiCategory(value, type) {
+  const category = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  if (category) {
+    return category;
+  }
+
+  return type === "income" ? "income" : "other";
 }
 
 function aiFallbackLabel(reason) {

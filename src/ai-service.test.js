@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   answerFinanceQuestion,
+  extractTransactionCandidates,
   generateBudgetSuggestion,
   generateFinanceInsight,
   isAiEnabled,
@@ -189,5 +190,55 @@ describe("ai service", () => {
     assert.equal(result.ok, true);
     assert.match(calls[0][0].messages[0].content, /progress budget/);
     assert.match(calls[0][0].messages[1].content, /"percent":90/);
+  });
+
+  it("extracts transaction candidates from strict JSON", async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: async () => ({
+            choices: [
+              {
+                message: {
+                  content:
+                    '{"transactions":[{"type":"expense","amount":20000,"note":"bensin","category":"transport","confidence":0.9}]}',
+                },
+              },
+            ],
+          }),
+        },
+      },
+    };
+
+    const result = await extractTransactionCandidates(
+      "tadi beli bensin 20 ribu",
+      {},
+      { client, env: { AI_ENABLED: "true", AI_API_KEY: "test-key" } },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].amount, 20000);
+  });
+
+  it("returns fallback for malformed extraction JSON", async () => {
+    const client = {
+      chat: {
+        completions: {
+          create: async () => ({
+            choices: [{ message: { content: "bensin 20 ribu" } }],
+          }),
+        },
+      },
+    };
+
+    const result = await extractTransactionCandidates(
+      "tadi beli bensin 20 ribu",
+      {},
+      { client, env: { AI_ENABLED: "true", AI_API_KEY: "test-key" } },
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "invalid_json");
   });
 });

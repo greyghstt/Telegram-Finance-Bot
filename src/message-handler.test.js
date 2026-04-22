@@ -36,6 +36,80 @@ describe("message handler", () => {
     assert.equal(income.summary.balance, 480000);
   });
 
+  it("auto-saves clear AI extracted natural transactions after validation", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "tadi beli bensin 20 ribu dan makan ayam 15 ribu", {
+      extractTransactionCandidates: async () => ({
+        ok: true,
+        candidates: [
+          {
+            type: "expense",
+            amount: 20000,
+            note: "bensin",
+            category: "transport",
+            confidence: 0.9,
+          },
+          {
+            type: "expense",
+            amount: 15000,
+            note: "makan ayam",
+            category: "food",
+            confidence: 0.9,
+          },
+        ],
+      }),
+    });
+
+    assert.equal(result.kind, "ai_transactions");
+    assert.equal(result.saved.length, 2);
+    assert.equal(result.summary.balance, -35000);
+  });
+
+  it("asks for clarification instead of saving ambiguous AI extracted transactions", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "refund teman 50 ribu", {
+      extractTransactionCandidates: async () => ({
+        ok: true,
+        candidates: [
+          {
+            type: "unknown",
+            amount: 50000,
+            note: "refund teman",
+            category: "other",
+            confidence: 0.9,
+          },
+        ],
+      }),
+    });
+
+    assert.equal(result.kind, "clarification");
+    assert.match(result.reply, /Belum ada transaksi yang disimpan/);
+  });
+
+  it("rejects low-confidence AI extracted transactions", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "mungkin bayar sesuatu 20 ribu", {
+      extractTransactionCandidates: async () => ({
+        ok: true,
+        candidates: [
+          {
+            type: "expense",
+            amount: 20000,
+            note: "sesuatu",
+            category: "other",
+            confidence: 0.4,
+          },
+        ],
+      }),
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.reply, /belum bisa memvalidasi/i);
+  });
+
   it("handles balance and history commands", async () => {
     const database = await createTestDatabase();
 
