@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   answerFinanceQuestion,
+  generateBudgetSuggestion,
   generateFinanceInsight,
   isAiEnabled,
 } from "./ai-service.js";
@@ -150,5 +151,43 @@ describe("ai service", () => {
     assert.match(calls[0][0].messages[0].content, /Angka utama sudah dihitung/);
     assert.match(calls[0][0].messages[1].content, /berapa total bensin bulan ini/);
     assert.doesNotMatch(calls[0][0].messages[1].content, /original/);
+  });
+
+  it("generates budget suggestions from progress data", async () => {
+    const calls = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (...args) => {
+            calls.push(args);
+            return {
+              choices: [{ message: { content: "Food sudah 90%, kurangi jajan dulu." } }],
+            };
+          },
+        },
+      },
+    };
+
+    const result = await generateBudgetSuggestion(
+      {
+        periodLabel: "bulan ini",
+        summary: { totalIncome: 0, totalExpense: 90000, balance: -90000, transactionCount: 1 },
+        budgets: [
+          {
+            category: "food",
+            monthlyLimit: 100000,
+            spent: 90000,
+            remaining: 10000,
+            percent: 90,
+            status: "warning",
+          },
+        ],
+      },
+      { client, env: { AI_ENABLED: "true", AI_API_KEY: "test-key" } },
+    );
+
+    assert.equal(result.ok, true);
+    assert.match(calls[0][0].messages[0].content, /progress budget/);
+    assert.match(calls[0][0].messages[1].content, /"percent":90/);
   });
 });
