@@ -55,6 +55,7 @@ hapus 2
 hari ini
 hapus terakhir
 saldo
+insight
 help
 ```
 

@@ -18,6 +18,7 @@ const messages = [
   "hari ini",
   "hapus terakhir",
   "saldo",
+  "insight",
   "help",
 ];
 
@@ -34,7 +35,7 @@ try {
   const results = [];
 
   for (const message of messages) {
-    const result = await handleMessage(database, message);
+    const result = await handleMessage(database, message, insightTestOptions(message));
     results.push(result);
 
     console.log(`\nYou:\n${message}`);
@@ -65,4 +66,18 @@ function cleanupDatabase() {
       }
     }
   }
+}
+
+function insightTestOptions(message) {
+  if (message !== "insight") {
+    return {};
+  }
+
+  return {
+    generateFinanceInsight: async () => ({
+      ok: false,
+      fallback: true,
+      reason: "ai_disabled",
+    }),
+  };
 }
