@@ -26,7 +26,8 @@ Main features:
 - Search transactions.
 - Category summary.
 - AI `/insight`, finance Q&A, budget suggestions, and natural transaction
-  extraction through SumoPod with manual fallbacks.
+  extraction through SumoPod with compact plain-text replies and manual
+  fallbacks.
 - Monthly budgets per Telegram chat.
 - Export CSV as a Telegram document.
 - Reset all transactions with `YA RESET` confirmation.
@@ -268,7 +269,9 @@ tanya kenapa pengeluaran food tinggi?
 ```
 
 The app computes the key numbers from the database first. AI only explains the
-computed summary and must not invent amounts.
+computed summary and must not invent amounts. Telegram replies are rendered as
+plain text; the app strips Markdown-like formatting from AI output before
+sending it.
 
 Budget commands:
 

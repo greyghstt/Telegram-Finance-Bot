@@ -17,7 +17,7 @@ describe("message handler", () => {
     assert.equal(result.ok, true);
     assert.equal(result.saved.length, 1);
     assert.equal(result.summary.balance, -20000);
-    assert.match(result.reply, /1 transaksi berhasil dicatat/);
+    assert.match(result.reply, /Tersimpan: 1 transaksi/);
     assert.match(result.reply, /WIB/);
   });
 
@@ -204,8 +204,8 @@ describe("message handler", () => {
 
     assert.equal(result.command, "category_report");
     assert.match(result.reply, /Laporan kategori/);
-    assert.match(result.reply, /food/);
-    assert.match(result.reply, /transport/);
+    assert.match(result.reply, /Makanan/);
+    assert.match(result.reply, /Transport/);
   });
 
   it("returns a read-only manual insight fallback when AI is disabled", async () => {
@@ -267,7 +267,7 @@ describe("message handler", () => {
         capturedData = data;
         return {
           ok: true,
-          content: `Total bensin: ${data.matchingSummary.totalExpense}.`,
+          content: `**Total bensin**: ${data.matchingSummary.totalExpense}.\n- Masih kecil.`,
         };
       },
     });
@@ -277,7 +277,11 @@ describe("message handler", () => {
     assert.equal(capturedData.periodLabel, "bulan ini");
     assert.equal(capturedData.summary.totalExpense, 35000);
     assert.equal(capturedData.matchingSummary.totalExpense, 20000);
-    assert.equal(result.reply, "Total bensin: 20000.");
+    assert.match(result.reply, /Jawaban keuangan/);
+    assert.match(result.reply, /Data cocok: bensin/);
+    assert.match(result.reply, /Jawaban AI/);
+    assert.match(result.reply, /Total bensin: 20000/);
+    assert.doesNotMatch(result.reply, /\*\*/);
   });
 
   it("returns manual finance question fallback when AI is unavailable", async () => {
@@ -296,7 +300,7 @@ describe("message handler", () => {
     assert.equal(result.command, "finance_question");
     assert.match(result.reply, /Jawaban keuangan/);
     assert.match(result.reply, /ringkasan manual/);
-    assert.match(result.reply, /Kategori terbesar/);
+    assert.match(result.reply, /Kategori utama/);
   });
 
   it("sets and shows monthly budget progress", async () => {
@@ -307,11 +311,11 @@ describe("message handler", () => {
     const listed = await handleMessage(database, "cek budget", { chatId: 123 });
 
     assert.equal(saved.command, "budget_set");
-    assert.match(saved.reply, /Budget food disimpan/);
+    assert.match(saved.reply, /Budget Makanan disimpan/);
     assert.equal(listed.budgets[0].category, "food");
     assert.equal(listed.budgets[0].spent, 450000);
     assert.equal(listed.budgets[0].percent, 64);
-    assert.match(listed.reply, /Rp\u00a0450.000 \/ Rp\u00a0700.000, 64%/);
+    assert.match(listed.reply, /Rp\u00a0450.000 \/ Rp\u00a0700.000 \(64%\)/);
   });
 
   it("deletes budgets and requires reset instructions", async () => {
@@ -323,7 +327,7 @@ describe("message handler", () => {
     const reset = await handleMessage(database, "reset budget", { chatId: 123 });
 
     assert.equal(deleted.command, "budget_delete");
-    assert.match(deleted.reply, /Budget food dihapus/);
+    assert.match(deleted.reply, /Budget Makanan dihapus/);
     assert.equal(reset.command, "budget_reset");
     assert.match(reset.reply, /butuh konfirmasi/);
   });
@@ -344,8 +348,29 @@ describe("message handler", () => {
     });
 
     assert.equal(result.command, "budget_suggestion");
-    assert.match(result.reply, /Saran budget/);
-    assert.match(result.reply, /food sudah mendekati batas/);
+    assert.match(result.reply, /Saran budget bulan ini/);
+    assert.match(result.reply, /Makanan sudah mendekati batas/);
+  });
+
+  it("wraps and sanitizes AI budget suggestions", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-90k makan kategori food");
+    await handleMessage(database, "budget food 100k", { chatId: 123 });
+
+    const result = await handleMessage(database, "saran budget", {
+      chatId: 123,
+      generateBudgetSuggestion: async () => ({
+        ok: true,
+        content: "**Food** sudah tinggi.\n- Tahan jajan dulu.",
+      }),
+    });
+
+    assert.equal(result.command, "budget_suggestion");
+    assert.match(result.reply, /Saran budget bulan ini/);
+    assert.match(result.reply, /Saran AI/);
+    assert.match(result.reply, /Food sudah tinggi/);
+    assert.doesNotMatch(result.reply, /\*\*/);
   });
 
   it("includes local timestamps in export csv", async () => {

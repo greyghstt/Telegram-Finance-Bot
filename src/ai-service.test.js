@@ -150,6 +150,7 @@ describe("ai service", () => {
     assert.equal(result.ok, true);
     assert.equal(result.content, "Bensin bulan ini Rp20.000.");
     assert.match(calls[0][0].messages[0].content, /Angka utama sudah dihitung/);
+    assert.match(calls[0][0].messages[0].content, /tanpa Markdown/);
     assert.match(calls[0][0].messages[1].content, /berapa total bensin bulan ini/);
     assert.doesNotMatch(calls[0][0].messages[1].content, /original/);
   });
@@ -189,6 +190,7 @@ describe("ai service", () => {
 
     assert.equal(result.ok, true);
     assert.match(calls[0][0].messages[0].content, /progress budget/);
+    assert.match(calls[0][0].messages[0].content, /tanpa Markdown/);
     assert.match(calls[0][0].messages[1].content, /"percent":90/);
   });
 

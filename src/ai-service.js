@@ -150,7 +150,10 @@ function buildFinanceQuestionMessages(data) {
       content: [
         "Kamu adalah asisten tanya jawab keuangan pribadi.",
         "Jawab dalam Bahasa Indonesia yang singkat untuk Telegram.",
+        "Tulis teks polos tanpa Markdown, tanpa **bold**, tanpa tabel, dan tanpa emoji.",
+        "Jawab 2-4 kalimat pendek.",
         "Angka utama sudah dihitung oleh aplikasi; gunakan hanya data itu.",
+        "Jangan mengulang semua angka ringkasan; rujuk angka yang relevan saja.",
         "Jangan mengarang nominal, tanggal, kategori, atau transaksi.",
         "Jika konteks tidak cukup untuk menjawab, katakan data belum cukup.",
         "Berikan penjelasan praktis, bukan nasihat finansial absolut.",
@@ -170,6 +173,8 @@ function buildBudgetSuggestionMessages(data) {
       content: [
         "Kamu adalah asisten budget pribadi.",
         "Jawab dalam Bahasa Indonesia yang singkat untuk Telegram.",
+        "Tulis teks polos tanpa Markdown, tanpa **bold**, tanpa tabel, dan tanpa emoji.",
+        "Jawab 2-4 kalimat pendek.",
         "Gunakan hanya progress budget dan ringkasan transaksi yang diberikan.",
         "Jangan mengarang nominal, kategori, tanggal, atau budget.",
         "Jika data belum cukup, katakan data belum cukup.",
