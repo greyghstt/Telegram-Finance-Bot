@@ -1,6 +1,7 @@
 import { handleMessage } from "./message-handler.js";
 import {
   clearAllTransactions,
+  clearBudgets,
   clearChatSessionMode,
   clearChatSessionPendingAction,
   getChatSession,
@@ -14,9 +15,10 @@ export const removeKeyboard = { remove_keyboard: true };
 
 export const mainKeyboard = {
   keyboard: [
+    [{ text: "Insight AI" }, { text: "Tanya AI" }, { text: "Budget" }],
     [{ text: "Input Pemasukan" }, { text: "Input Pengeluaran" }],
-    [{ text: "Saldo" }, { text: "Hari Ini" }],
-    [{ text: "Riwayat" }, { text: "Kategori" }],
+    [{ text: "Saldo" }, { text: "Riwayat" }],
+    [{ text: "Hari Ini" }, { text: "Kategori" }],
     [{ text: "Export CSV" }, { text: "Hapus Terakhir" }],
   ],
   resize_keyboard: true,
@@ -36,6 +38,8 @@ export const BOT_COMMANDS = [
   { command: "riwayat", description: "Lihat transaksi terakhir" },
   { command: "kategori", description: "Lihat ringkasan kategori" },
   { command: "insight", description: "Insight keuangan read-only" },
+  { command: "tanya", description: "Tanya AI soal data keuangan" },
+  { command: "budget", description: "Cek atau atur budget" },
   { command: "cari", description: "Cari transaksi, contoh: /cari bensin" },
   { command: "hapusterakhir", description: "Hapus transaksi terakhir" },
   { command: "export", description: "Export CSV" },
@@ -53,11 +57,15 @@ const BUTTON_COMMANDS = new Map([
   ["hari ini", "hari ini"],
   ["riwayat", "riwayat"],
   ["kategori", "kategori"],
+  ["insight ai", "insight"],
+  ["tanya ai", "ask_prompt"],
+  ["budget", "budget"],
   ["bantuan", "help"],
   ["export csv", "export csv"],
   ["hapus terakhir", "hapus terakhir"],
   ["reset", "reset_data"],
   ["reset data", "reset_data"],
+  ["reset budget", "reset_budget"],
 ]);
 
 export async function processTelegramUpdate({ database, update, token, allowedChatIds }) {
@@ -102,6 +110,11 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
     return { handled: true, kind: "cancel" };
   }
 
+  if (normalizedText === "ask_prompt") {
+    await sendTelegramMessage(token, chatId, buildAskPrompt(), { replyMarkup: mainKeyboard });
+    return { handled: true, kind: "ask_prompt" };
+  }
+
   if (normalizedText === "reset_data") {
     await clearChatSessionMode(database, chatId);
     await setChatSessionPendingAction(database, chatId, "reset_confirm");
@@ -109,10 +122,37 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
     return { handled: true, kind: "reset_requested" };
   }
 
+  if (normalizedText === "reset_budget" || normalizedText === "reset budget") {
+    await clearChatSessionMode(database, chatId);
+    await setChatSessionPendingAction(database, chatId, "budget_reset_confirm");
+    await sendTelegramMessage(token, chatId, buildBudgetResetPrompt(), { replyMarkup: mainKeyboard });
+    return { handled: true, kind: "budget_reset_requested" };
+  }
+
   const activeSession = await getChatSession(database, chatId);
   if (activeSession?.pendingAction === "reset_confirm") {
     const result = await handlePendingResetAction(database, token, chatId, text);
     return { handled: true, kind: "reset_confirmation", result };
+  }
+
+  if (activeSession?.pendingAction === "budget_reset_confirm") {
+    const result = await handlePendingBudgetResetAction(database, token, chatId, text);
+    return { handled: true, kind: "budget_reset_confirmation", result };
+  }
+
+  if (activeSession?.pendingAction === "transaction_clarify") {
+    await clearChatSessionPendingAction(database, chatId);
+    await sendTelegramMessage(
+      token,
+      chatId,
+      [
+        "Klarifikasi transaksi dibatalkan.",
+        "",
+        "Pilih /pemasukan atau /pengeluaran, lalu kirim ulang transaksi tanpa tanda.",
+      ].join("\n"),
+      { replyMarkup: mainKeyboard },
+    );
+    return { handled: true, kind: "transaction_clarification_cancelled" };
   }
 
   if (normalizedText === "input_income" || normalizedText === "input_expense") {
@@ -122,8 +162,15 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
     return { handled: true, kind: "input_mode", mode };
   }
 
-  const effectiveText = await applyPendingInputMode(database, chatId, normalizedText);
-  const result = await handleMessage(database, effectiveText);
+  const effective = await applyPendingInputMode(database, chatId, normalizedText);
+  const result = await handleMessage(database, effective.text, {
+    chatId,
+    defaultTransactionType: effective.defaultTransactionType,
+  });
+
+  if (result.kind === "clarification") {
+    await setChatSessionPendingAction(database, chatId, "transaction_clarify");
+  }
 
   if (result.command === "export" && result.csv) {
     await sendTelegramDocument(token, chatId, result.filename ?? "telegram-finance-bot.csv", result.csv, {
@@ -236,12 +283,22 @@ export function normalizeTelegramCommand(text) {
     "/riwayat": "riwayat",
     "/kategori": "kategori",
     "/insight": "insight",
+    "/tanya": "ask_prompt",
+    "/budget": "budget",
     "/hapusterakhir": "hapus terakhir",
     "/export": "export csv",
     "/reset": "reset_data",
   };
 
-  return commands[trimmed] ?? trimmed;
+  if (commands[trimmed]) {
+    return commands[trimmed];
+  }
+
+  if (trimmed.toLowerCase().startsWith("/tanya ")) {
+    return `tanya ${trimmed.slice(7).trim()}`;
+  }
+
+  return trimmed;
 }
 
 export function isAllowedChat(chatId, allowedChatIds) {
@@ -257,20 +314,20 @@ async function applyPendingInputMode(database, chatId, text) {
   const mode = session?.pendingInputMode;
 
   if (!mode) {
-    return text;
+    return { text, defaultTransactionType: null };
   }
 
   await clearChatSessionMode(database, chatId);
 
   if (isCommandText(text) || String(text).trim().startsWith("/")) {
-    return text;
+    return { text, defaultTransactionType: null };
   }
 
   if (/^[+-]/.test(text)) {
-    return text;
+    return { text, defaultTransactionType: null };
   }
 
-  return `${mode === "income" ? "+" : "-"}${text}`;
+  return { text, defaultTransactionType: mode };
 }
 
 async function handlePendingResetAction(database, token, chatId, text) {
@@ -316,17 +373,54 @@ async function handlePendingResetAction(database, token, chatId, text) {
   };
 }
 
+async function handlePendingBudgetResetAction(database, token, chatId, text) {
+  const normalized = String(text ?? "").trim().toUpperCase();
+
+  if (normalized !== "YA RESET BUDGET") {
+    await sendTelegramMessage(
+      token,
+      chatId,
+      [
+        "Konfirmasi reset budget belum cocok.",
+        "",
+        "Ketik persis:",
+        "YA RESET BUDGET",
+        "",
+        "Atau ketik /batal untuk membatalkan.",
+      ].join("\n"),
+      { replyMarkup: mainKeyboard },
+    );
+
+    return { ok: false, kind: "budget_reset_confirmation_pending" };
+  }
+
+  const result = await clearBudgets(database, chatId);
+  await clearChatSessionPendingAction(database, chatId);
+
+  const reply =
+    result.deletedCount > 0
+      ? [
+          "Semua budget berhasil direset.",
+          "",
+          `Jumlah yang dihapus: ${result.deletedCount}`,
+        ].join("\n")
+      : "Tidak ada budget yang perlu direset.";
+
+  await sendTelegramMessage(token, chatId, reply, { replyMarkup: mainKeyboard });
+
+  return {
+    ok: true,
+    deletedCount: result.deletedCount,
+  };
+}
+
 function buildStartReply() {
   return [
     "Keuangan Telegram siap dipakai.",
     "",
     "Menu command Telegram aktif, dan keyboard cepat juga muncul di bawah chat.",
     "",
-    "Tombol Input Pemasukan/Pengeluaran boleh dipakai agar pesan berikutnya tidak perlu tanda + atau -.",
-    "",
-    "Wajib pakai tanda di awal:",
-    "+ untuk pemasukan",
-    "- untuk pengeluaran",
+    "Tombol Input Pemasukan/Pengeluaran adalah alur utama agar pesan berikutnya tidak perlu tanda + atau -.",
     "",
     "Contoh:",
     "-20k bensin",
@@ -334,6 +428,7 @@ function buildStartReply() {
     "saldo",
     "hari ini",
     "riwayat",
+    "insight",
   ].join("\n");
 }
 
@@ -361,12 +456,33 @@ function buildInputModePrompt(mode) {
   ].join("\n");
 }
 
+function buildAskPrompt() {
+  return [
+    "Ketik pertanyaan setelah /tanya.",
+    "",
+    "Contoh:",
+    "/tanya bulan ini boros di mana?",
+    "/tanya berapa total bensin bulan ini?",
+  ].join("\n");
+}
+
 function buildResetPrompt() {
   return [
     "Kamu akan menghapus semua transaksi.",
     "",
     "Untuk lanjut, ketik persis:",
     "YA RESET",
+    "",
+    "Ketik /batal kalau berubah pikiran.",
+  ].join("\n");
+}
+
+function buildBudgetResetPrompt() {
+  return [
+    "Kamu akan menghapus semua budget.",
+    "",
+    "Untuk lanjut, ketik persis:",
+    "YA RESET BUDGET",
     "",
     "Ketik /batal kalau berubah pikiran.",
   ].join("\n");
@@ -381,6 +497,7 @@ function isCommandText(text) {
     "riwayat",
     "kategori",
     "insight",
+    "budget",
     "hapus terakhir",
     "export csv",
     "reset_data",

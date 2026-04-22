@@ -53,7 +53,11 @@ describe("telegram service", () => {
 
   it("exposes the insight command in Telegram command metadata", () => {
     assert.equal(normalizeTelegramCommand("/insight"), "insight");
+    assert.equal(normalizeTelegramCommand("/tanya bulan ini aman?"), "tanya bulan ini aman?");
+    assert.equal(normalizeTelegramCommand("/budget"), "budget");
     assert.equal(BOT_COMMANDS.some((command) => command.command === "insight"), true);
+    assert.equal(BOT_COMMANDS.some((command) => command.command === "tanya"), true);
+    assert.equal(BOT_COMMANDS.some((command) => command.command === "budget"), true);
   });
 
   it("stores input mode in the database and applies it to the next message", async () => {
@@ -80,6 +84,39 @@ describe("telegram service", () => {
 
     assert.equal((await getChatSession(database, 123456789)).pendingInputMode, null);
     assert.match(readJsonBody(replies.at(-1)).text, /1 transaksi berhasil dicatat/);
+  });
+
+  it("requires explicit confirmation before resetting budgets", async () => {
+    const database = await createTestDatabase();
+    const replies = [];
+    mockTelegramFetch(replies);
+    const allowedChatIds = new Set(["123456789"]);
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("budget food 700k"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("reset budget"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    assert.equal((await getChatSession(database, 123456789)).pendingAction, "budget_reset_confirm");
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("YA RESET BUDGET"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    assert.equal((await getChatSession(database, 123456789)).pendingAction, null);
+    assert.match(readJsonBody(replies.at(-1)).text, /budget berhasil direset/i);
   });
 
   it("blocks chats outside the allowed list", async () => {
