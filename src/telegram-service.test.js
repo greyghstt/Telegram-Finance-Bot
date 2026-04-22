@@ -6,7 +6,11 @@ import {
   listTransactions,
   openDatabase,
 } from "./database.js";
-import { processTelegramUpdate } from "./telegram-service.js";
+import {
+  BOT_COMMANDS,
+  normalizeTelegramCommand,
+  processTelegramUpdate,
+} from "./telegram-service.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -45,6 +49,11 @@ function textUpdate(text, chatId = 123456789) {
 describe("telegram service", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  it("exposes the insight command in Telegram command metadata", () => {
+    assert.equal(normalizeTelegramCommand("/insight"), "insight");
+    assert.equal(BOT_COMMANDS.some((command) => command.command === "insight"), true);
   });
 
   it("stores input mode in the database and applies it to the next message", async () => {
