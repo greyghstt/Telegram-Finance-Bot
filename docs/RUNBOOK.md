@@ -58,8 +58,9 @@ If it returns `401`, check the local or Vercel `ADMIN_API_TOKEN`.
 
 ## Troubleshoot AI Insight
 
-The `/insight` command is read-only. It should still reply with a manual
-summary when AI is disabled, the key is missing, or SumoPod is unavailable.
+AI features include `/insight`, `tanya ...`, `saran budget`, and natural
+transaction extraction. Existing non-AI commands should continue to work when
+AI is disabled, the key is missing, or SumoPod is unavailable.
 
 Local checks:
 
@@ -74,11 +75,32 @@ Configuration checks:
 - `AI_ENABLED=true` also requires `AI_API_KEY`.
 - `AI_BASE_URL` should normally be `https://ai.sumopod.com/v1`.
 - `AI_MODEL` should start as `MiniMax-M2.7-highspeed`.
+- `AI_MAX_TOKENS` should be `2500`.
+- `AI_TIMEOUT_MS` should be `25000`.
 - Never print or paste `AI_API_KEY` in logs, screenshots, issues, or commits.
 
 If `/insight` returns only the manual fallback while AI should be active, check
 for a missing key, provider timeout, exhausted provider balance, or invalid
 model name. Existing non-AI commands should continue to work.
+
+## Vercel AI Environment
+
+Required AI variables for both Preview and Production:
+
+```text
+AI_ENABLED=true
+AI_PROVIDER=sumopod
+AI_API_KEY=<set in Vercel only>
+AI_BASE_URL=https://ai.sumopod.com/v1
+AI_MODEL=MiniMax-M2.7-highspeed
+AI_TEMPERATURE=0.2
+AI_MAX_TOKENS=2500
+AI_TIMEOUT_MS=25000
+```
+
+Use Vercel CLI only if the value can be passed without printing secrets. If
+the CLI prompt would expose `AI_API_KEY`, set it manually in the Vercel
+Dashboard instead.
 
 ## Deploy and Rollback
 
