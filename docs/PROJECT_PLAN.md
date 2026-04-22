@@ -35,13 +35,16 @@ hari ini
 hapus terakhir
 ```
 
-Manual transactions must start with:
+Current direct transaction input still supports explicit signs:
 
 - `+` for income.
 - `-` for expense.
 
 The manual parser and database are the source of truth. AI is an optional layer
 for explanation, insight, and future draft extraction.
+
+Long-term input direction: signs should stay supported but should not be
+required after income/expense buttons and AI natural parsing are improved.
 
 ## Core Principles
 
@@ -53,7 +56,8 @@ for explanation, insight, and future draft extraction.
 - Use SQLite for local development and tests.
 - Keep Vercel functions close to Supabase by using region `syd1`.
 - Require confirmation for destructive actions.
-- Require confirmation before saving AI-generated transaction drafts.
+- Validate AI-generated transaction drafts before saving them.
+- Ask for confirmation only when AI output is ambiguous or risky.
 - Run checks before deployment.
 - Prefer small, reversible changes.
 
@@ -93,10 +97,10 @@ Future AI natural input path:
 ```text
 Free-form user text
   -> Manual parser fails or AI mode is selected
-  -> AI extracts draft transactions
-  -> Bot asks for confirmation
-  -> User confirms
-  -> Database save
+  -> AI extracts structured transaction candidates
+  -> App validates candidates
+  -> Auto-save if simple and unambiguous
+  -> Ask user only when ambiguous
 ```
 
 ## Completed Milestones
@@ -279,7 +283,7 @@ Initial AI use cases:
 
 1. Generate spending insight from database summaries.
 2. Answer finance questions using code-calculated summaries.
-3. Later, extract draft transactions from natural language with confirmation.
+3. Later, extract natural-language transactions and auto-save when validated.
 
 AI must not become the source of truth for amounts. Amounts should be computed
 by the application and database.
@@ -551,7 +555,8 @@ Done when:
 
 ### Phase 6: AI Natural Input Drafts
 
-Goal: allow free-form text to become draft transactions, but never auto-save.
+Goal: allow free-form text to become saved transactions when the AI output is
+simple, validated, and unambiguous.
 
 Example:
 
@@ -572,24 +577,46 @@ Required flow:
 ```text
 AI extracts draft
   -> Bot displays draft
-  -> Bot asks for confirmation
-  -> User confirms
-  -> Manual parser validates draft
-  -> Database save
+  -> App validates draft
+  -> Auto-save if type and amount are clear
+  -> Ask user only if type, amount, or note is ambiguous
 ```
 
 Rules:
 
-- Never save AI drafts automatically.
-- Always re-validate AI draft output with the manual parser.
+- AI auto-save is allowed for simple validated transactions.
+- Always re-validate AI draft output with app-side validation.
+- Ask for confirmation when confidence is low or transaction type is unclear.
 - Store pending confirmation in `chat_sessions`.
 - Allow `/batal` to cancel.
 
 Done when:
 
-- AI free-form input can create draft transactions.
+- AI free-form input can create and save simple transactions.
 - Bad AI output is rejected safely.
-- No transaction is saved without user confirmation.
+- Ambiguous transactions ask for clarification instead of saving.
+
+## Future Input Simplification
+
+The current manual parser requires a leading `+` or `-` for direct text
+transactions. This is no longer the long-term target because the bot already has
+Telegram buttons for income and expense input modes.
+
+Target behavior:
+
+- `20k bensin` can be saved as expense when the user selected expense mode.
+- `500k gaji` can be saved as income when the user selected income mode.
+- Simple natural input can be parsed by AI and auto-saved after validation.
+- Leading `+` and `-` remain supported for fast power-user input.
+- If transaction type is unclear, the bot asks the user to choose income or
+  expense.
+
+Implementation notes:
+
+- Keep backward compatibility with `+` and `-`.
+- Do not remove tests for signed inputs; add tests for unsigned mode inputs.
+- Use pending input mode before AI when the user explicitly chose a type.
+- Use AI only when deterministic parsing cannot confidently decide.
 
 ### Phase 7: Budget Assistant
 
@@ -691,7 +718,7 @@ AI backlog:
 2. Add read-only `/insight`.
 3. Compare SumoPod model candidates.
 4. Add finance Q&A.
-5. Add AI natural input drafts with confirmation.
+5. Add AI natural parser with validated auto-save.
 6. Add budget assistant.
 
 Optional future improvements:
