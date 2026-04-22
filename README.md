@@ -34,6 +34,7 @@ Main features:
 
 ```text
 Telegram-Finance-Bot/
+  AGENTS.md
   api/telegram/webhook.js
   docs/
     LOCAL_TESTING.md
