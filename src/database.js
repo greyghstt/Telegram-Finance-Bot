@@ -81,7 +81,7 @@ export async function initializeDatabase(database) {
         id bigint generated always as identity primary key,
         chat_id text not null unique,
         pending_input_mode text check (pending_input_mode in ('income', 'expense')),
-        pending_action text check (pending_action in ('reset_confirm')),
+        pending_action text check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify')),
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       )
@@ -89,10 +89,30 @@ export async function initializeDatabase(database) {
     await database.client`create index if not exists idx_chat_sessions_chat_id on public.chat_sessions (chat_id)`;
     await database.client`
       alter table public.chat_sessions
-      add column if not exists pending_action text check (pending_action in ('reset_confirm'))
+      add column if not exists pending_action text
     `;
+    await database.client`alter table public.chat_sessions drop constraint if exists chat_sessions_pending_action_check`;
+    await database.client`
+      alter table public.chat_sessions
+      add constraint chat_sessions_pending_action_check
+      check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify'))
+    `;
+    await database.client`
+      create table if not exists public.budgets (
+        id bigint generated always as identity primary key,
+        chat_id text not null,
+        category text not null,
+        period text not null default 'monthly' check (period in ('monthly')),
+        monthly_limit integer not null check (monthly_limit > 0),
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        unique (chat_id, category, period)
+      )
+    `;
+    await database.client`create index if not exists idx_budgets_chat_period on public.budgets (chat_id, period)`;
     await database.client`alter table public.transactions enable row level security`;
     await database.client`alter table public.chat_sessions enable row level security`;
+    await database.client`alter table public.budgets enable row level security`;
     return;
   }
 
@@ -133,13 +153,27 @@ export async function initializeDatabase(database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL UNIQUE,
       pending_input_mode TEXT CHECK (pending_input_mode IN ('income', 'expense')),
-      pending_action TEXT CHECK (pending_action IN ('reset_confirm')),
+      pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_chat_sessions_chat_id
       ON chat_sessions (chat_id);
+
+    CREATE TABLE IF NOT EXISTS budgets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      period TEXT NOT NULL DEFAULT 'monthly' CHECK (period IN ('monthly')),
+      monthly_limit INTEGER NOT NULL CHECK (monthly_limit > 0),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(chat_id, category, period)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_budgets_chat_period
+      ON budgets (chat_id, period);
   `);
 
   database.client
@@ -152,7 +186,7 @@ export async function initializeDatabase(database) {
   try {
     database.client.exec(`
       ALTER TABLE chat_sessions
-      ADD COLUMN pending_action TEXT CHECK (pending_action IN ('reset_confirm'));
+      ADD COLUMN pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify'));
     `);
   } catch (error) {
     if (!String(error.message).includes("duplicate column name")) {
@@ -405,6 +439,131 @@ export async function getCategorySummary(database, { from, to, limit = 8 } = {})
     .map(mapCategorySummaryRow);
 }
 
+export async function saveBudget(database, { chatId, category, monthlyLimit, period = "monthly" }) {
+  const cleanChatId = normalizeChatId(chatId);
+  const cleanCategory = normalizeCategory(category);
+  const limit = Number.parseInt(monthlyLimit, 10);
+
+  if (!cleanCategory || !Number.isSafeInteger(limit) || limit <= 0 || period !== "monthly") {
+    throw new Error("Budget tidak valid.");
+  }
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      insert into public.budgets (chat_id, category, period, monthly_limit, updated_at)
+      values (${cleanChatId}, ${cleanCategory}, ${period}, ${limit}, now())
+      on conflict (chat_id, category, period)
+      do update set monthly_limit = excluded.monthly_limit, updated_at = now()
+      returning *
+    `;
+    return mapBudgetRow(rows[0]);
+  }
+
+  const now = new Date().toISOString();
+  database.client
+    .prepare(
+      `INSERT INTO budgets (chat_id, category, period, monthly_limit, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(chat_id, category, period)
+       DO UPDATE SET monthly_limit = excluded.monthly_limit, updated_at = excluded.updated_at`,
+    )
+    .run(cleanChatId, cleanCategory, period, limit, now, now);
+
+  return getBudget(database, cleanChatId, cleanCategory, period);
+}
+
+export async function listBudgets(database, chatId, { period = "monthly" } = {}) {
+  const cleanChatId = normalizeChatId(chatId);
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      select *
+      from public.budgets
+      where chat_id = ${cleanChatId} and period = ${period}
+      order by category asc
+    `;
+    return rows.map(mapBudgetRow);
+  }
+
+  return database.client
+    .prepare(
+      `SELECT *
+       FROM budgets
+       WHERE chat_id = ? AND period = ?
+       ORDER BY category ASC`,
+    )
+    .all(cleanChatId, period)
+    .map(mapBudgetRow);
+}
+
+export async function deleteBudget(database, chatId, category, { period = "monthly" } = {}) {
+  const cleanChatId = normalizeChatId(chatId);
+  const cleanCategory = normalizeCategory(category);
+
+  if (!cleanCategory) {
+    return null;
+  }
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      delete from public.budgets
+      where chat_id = ${cleanChatId} and category = ${cleanCategory} and period = ${period}
+      returning *
+    `;
+    return rows[0] ? mapBudgetRow(rows[0]) : null;
+  }
+
+  const budget = await getBudget(database, cleanChatId, cleanCategory, period);
+  if (!budget) {
+    return null;
+  }
+
+  database.client
+    .prepare("DELETE FROM budgets WHERE chat_id = ? AND category = ? AND period = ?")
+    .run(cleanChatId, cleanCategory, period);
+  return budget;
+}
+
+export async function clearBudgets(database, chatId, { period = "monthly" } = {}) {
+  const cleanChatId = normalizeChatId(chatId);
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      delete from public.budgets
+      where chat_id = ${cleanChatId} and period = ${period}
+      returning id
+    `;
+    return { deletedCount: rows.length };
+  }
+
+  const row = database.client
+    .prepare("SELECT COUNT(*) AS count FROM budgets WHERE chat_id = ? AND period = ?")
+    .get(cleanChatId, period);
+  database.client
+    .prepare("DELETE FROM budgets WHERE chat_id = ? AND period = ?")
+    .run(cleanChatId, period);
+  return { deletedCount: Number(row.count) };
+}
+
+export async function getBudgetProgress(database, chatId, { from, to, period = "monthly" } = {}) {
+  const budgets = await listBudgets(database, chatId, { period });
+  const categories = await getCategorySummary(database, { from, to, limit: 20 });
+
+  return budgets.map((budget) => {
+    const category = categories.find((item) => item.category === budget.category);
+    const spent = category?.totalExpense ?? 0;
+    const percent = budget.monthlyLimit > 0 ? Math.round((spent / budget.monthlyLimit) * 100) : 0;
+
+    return {
+      ...budget,
+      spent,
+      remaining: budget.monthlyLimit - spent,
+      percent,
+      status: percent >= 100 ? "over" : percent >= 80 ? "warning" : "ok",
+    };
+  });
+}
+
 export async function deleteLastTransaction(database) {
   if (database.kind === "postgres") {
     const rows = await database.client`
@@ -479,13 +638,15 @@ export async function getDatabaseStatus(database) {
     const rows = await database.client`
       select
         (select count(*)::int from public.transactions) as transactions,
-        (select count(*)::int from public.chat_sessions) as chat_sessions
+        (select count(*)::int from public.chat_sessions) as chat_sessions,
+        (select count(*)::int from public.budgets) as budgets
     `;
     return {
       ok: true,
       kind: "postgres",
       transactions: Number(rows[0].transactions),
       chatSessions: Number(rows[0].chat_sessions),
+      budgets: Number(rows[0].budgets),
     };
   }
 
@@ -498,6 +659,9 @@ export async function getDatabaseStatus(database) {
   const chatSessionCount = database.client
     .prepare("SELECT COUNT(*) AS count FROM chat_sessions")
     .get();
+  const budgetCount = database.client
+    .prepare("SELECT COUNT(*) AS count FROM budgets")
+    .get();
 
   return {
     ok: true,
@@ -505,6 +669,7 @@ export async function getDatabaseStatus(database) {
     migrations: Number(migrationCount.count),
     transactions: Number(transactionCount.count),
     chatSessions: Number(chatSessionCount.count),
+    budgets: Number(budgetCount.count),
   };
 }
 
@@ -687,6 +852,40 @@ function mapCategorySummaryRow(row) {
   };
 }
 
+async function getBudget(database, chatId, category, period) {
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      select *
+      from public.budgets
+      where chat_id = ${chatId} and category = ${category} and period = ${period}
+      limit 1
+    `;
+    return rows[0] ? mapBudgetRow(rows[0]) : null;
+  }
+
+  const row = database.client
+    .prepare(
+      `SELECT *
+       FROM budgets
+       WHERE chat_id = ? AND category = ? AND period = ?
+       LIMIT 1`,
+    )
+    .get(chatId, category, period);
+  return row ? mapBudgetRow(row) : null;
+}
+
+function mapBudgetRow(row) {
+  return {
+    id: Number(row.id),
+    chatId: row.chat_id,
+    category: row.category,
+    period: row.period,
+    monthlyLimit: Number(row.monthly_limit),
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
+  };
+}
+
 function mapTransactionRow(row) {
   return {
     id: Number(row.id),
@@ -740,6 +939,14 @@ function parseTags(value) {
   } catch {
     return [];
   }
+}
+
+function normalizeChatId(value) {
+  return String(value ?? "default").trim() || "default";
+}
+
+function normalizeCategory(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
 }
 
 function clampInteger(value, min, max) {

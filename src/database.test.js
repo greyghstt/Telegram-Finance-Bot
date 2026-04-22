@@ -2,15 +2,20 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   clearAllTransactions,
+  clearBudgets,
   clearChatSessionPendingAction,
   deleteLastTransaction,
   deleteTransactionById,
+  deleteBudget,
+  getBudgetProgress,
   getDatabaseStatus,
   getChatSession,
   getSummary,
   initializeDatabase,
+  listBudgets,
   listTransactions,
   openDatabase,
+  saveBudget,
   saveTransaction,
   saveTransactions,
   searchTransactions,
@@ -34,6 +39,7 @@ describe("database", () => {
       migrations: 1,
       transactions: 0,
       chatSessions: 0,
+      budgets: 0,
     });
   });
 
@@ -80,8 +86,8 @@ describe("database", () => {
   it("stores and clears pending chat actions", async () => {
     const database = await createTestDatabase();
 
-    await setChatSessionPendingAction(database, 123, "reset_confirm");
-    assert.equal((await getChatSession(database, 123)).pendingAction, "reset_confirm");
+    await setChatSessionPendingAction(database, 123, "budget_reset_confirm");
+    assert.equal((await getChatSession(database, 123)).pendingAction, "budget_reset_confirm");
 
     await clearChatSessionPendingAction(database, 123);
     assert.equal((await getChatSession(database, 123)).pendingAction, null);
@@ -123,5 +129,48 @@ describe("database", () => {
     assert.equal(byNote[0].note, "bensin");
     assert.equal(byCategory.length, 1);
     assert.equal(byCategory[0].note, "kopi");
+  });
+
+  it("stores budgets and calculates monthly progress", async () => {
+    const database = await createTestDatabase();
+    const parsed = parseInput("-450k makan kategori food\n-50k bensin kategori transport");
+
+    await saveTransactions(database, parsed.transactions);
+    const food = await saveBudget(database, {
+      chatId: 123,
+      category: "food",
+      monthlyLimit: 700000,
+    });
+    await saveBudget(database, {
+      chatId: 123,
+      category: "transport",
+      monthlyLimit: 300000,
+    });
+
+    assert.equal(food.category, "food");
+    assert.equal((await listBudgets(database, 123)).length, 2);
+
+    const progress = await getBudgetProgress(database, 123);
+    const foodProgress = progress.find((item) => item.category === "food");
+
+    assert.equal(foodProgress.spent, 450000);
+    assert.equal(foodProgress.monthlyLimit, 700000);
+    assert.equal(foodProgress.percent, 64);
+    assert.equal(foodProgress.status, "ok");
+  });
+
+  it("deletes and clears budgets", async () => {
+    const database = await createTestDatabase();
+
+    await saveBudget(database, { chatId: 123, category: "food", monthlyLimit: 700000 });
+    await saveBudget(database, { chatId: 123, category: "transport", monthlyLimit: 300000 });
+
+    const deleted = await deleteBudget(database, 123, "food");
+    assert.equal(deleted.category, "food");
+    assert.equal((await listBudgets(database, 123)).length, 1);
+
+    const cleared = await clearBudgets(database, 123);
+    assert.equal(cleared.deletedCount, 1);
+    assert.equal((await listBudgets(database, 123)).length, 0);
   });
 });
