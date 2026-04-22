@@ -35,6 +35,10 @@ const COMMAND_PATTERNS = [
     aliases: ["kategori", "laporan kategori", "rekap kategori", "category"],
   },
   {
+    command: "insight",
+    aliases: ["/insight", "insight", "ai insight", "analisis", "analisa"],
+  },
+  {
     command: "delete_last",
     aliases: ["hapus terakhir", "undo", "batal", "hapus transaksi terakhir", "hapus yang terakhir"],
   },

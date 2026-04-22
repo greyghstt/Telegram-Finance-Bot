@@ -112,6 +112,11 @@ describe("parseInput", () => {
     assert.equal(parseInput("export csv").command, "export");
     assert.equal(parseInput("riwayat").command, "history");
     assert.equal(parseInput("kategori").command, "category_report");
+    assert.equal(parseInput("/insight").command, "insight");
+    assert.equal(parseInput("insight").command, "insight");
+    assert.equal(parseInput("ai insight").command, "insight");
+    assert.equal(parseInput("analisis").command, "insight");
+    assert.equal(parseInput("analisa").command, "insight");
     assert.equal(parseInput("reset data").command, "reset_data");
   });
 
