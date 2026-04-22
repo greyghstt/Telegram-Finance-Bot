@@ -240,8 +240,8 @@ AI_API_KEY=
 AI_BASE_URL=https://ai.sumopod.com/v1
 AI_MODEL=MiniMax-M2.7-highspeed
 AI_TEMPERATURE=0.2
-AI_MAX_TOKENS=500
-AI_TIMEOUT_MS=15000
+AI_MAX_TOKENS=2500
+AI_TIMEOUT_MS=25000
 ```
 
 AI must be introduced in this order:

@@ -4,8 +4,8 @@ const DEFAULT_PROVIDER = "sumopod";
 const DEFAULT_BASE_URL = "https://ai.sumopod.com/v1";
 const DEFAULT_MODEL = "MiniMax-M2.7-highspeed";
 const DEFAULT_TEMPERATURE = 0.2;
-const DEFAULT_MAX_TOKENS = 500;
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_MAX_TOKENS = 2500;
+const DEFAULT_TIMEOUT_MS = 25000;
 
 export function isAiEnabled(env = process.env) {
   return String(env.AI_ENABLED ?? "false").trim().toLowerCase() === "true";
