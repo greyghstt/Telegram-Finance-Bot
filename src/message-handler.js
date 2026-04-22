@@ -36,7 +36,9 @@ export async function handleMessage(database, message, options = {}) {
     return handleVariableCommand(database, variableCommand, options);
   }
 
-  const parsed = parseInput(message);
+  const parsed = parseInput(message, {
+    defaultType: options.defaultTransactionType,
+  });
 
   if (!parsed.ok) {
     return {

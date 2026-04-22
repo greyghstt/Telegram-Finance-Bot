@@ -21,6 +21,21 @@ describe("message handler", () => {
     assert.match(result.reply, /WIB/);
   });
 
+  it("saves unsigned transactions when input mode provides the type", async () => {
+    const database = await createTestDatabase();
+
+    const expense = await handleMessage(database, "20k bensin", {
+      defaultTransactionType: "expense",
+    });
+    const income = await handleMessage(database, "500k gaji", {
+      defaultTransactionType: "income",
+    });
+
+    assert.equal(expense.saved[0].type, "expense");
+    assert.equal(income.saved[0].type, "income");
+    assert.equal(income.summary.balance, 480000);
+  });
+
   it("handles balance and history commands", async () => {
     const database = await createTestDatabase();
 
