@@ -95,6 +95,18 @@ describe("parseTransactionLine", () => {
     assert.equal(result.ok, false);
     assert.match(result.error, /diawali tanda \+/);
   });
+
+  it("parses unsigned transactions when default type is explicit", () => {
+    const expense = parseTransactionLine("20k bensin", { defaultType: "expense" });
+    const income = parseTransactionLine("500k gaji", { defaultType: "income" });
+
+    assert.equal(expense.ok, true);
+    assert.equal(expense.transaction.type, "expense");
+    assert.equal(expense.transaction.amount, 20000);
+    assert.equal(income.ok, true);
+    assert.equal(income.transaction.type, "income");
+    assert.equal(income.transaction.amount, 500000);
+  });
 });
 
 describe("parseInput", () => {
@@ -128,6 +140,16 @@ describe("parseInput", () => {
     assert.equal(result.count, 3);
     assert.equal(result.totalExpense, 32000);
     assert.equal(result.totalIncome, 100000);
+  });
+
+  it("parses unsigned batch transactions with explicit default type", () => {
+    const result = parseInput("1. 12k minimarket\n2. 20k bensin", {
+      defaultType: "expense",
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.kind, "batch");
+    assert.equal(result.totalExpense, 32000);
   });
 
   it("returns clear errors for unknown messages", () => {

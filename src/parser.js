@@ -228,7 +228,7 @@ const AMOUNT_PATTERN =
 const REQUIRED_SIGN_MESSAGE =
   "Transaksi harus diawali tanda + untuk pemasukan atau - untuk pengeluaran. Contoh: +500k gaji, -20k bensin.";
 
-export function parseInput(input) {
+export function parseInput(input, options = {}) {
   const message = normalizeWhitespace(input);
 
   if (!message) {
@@ -241,7 +241,7 @@ export function parseInput(input) {
   }
 
   const lines = splitTransactionLines(input);
-  const parsedLines = lines.map((line) => parseTransactionLine(line));
+  const parsedLines = lines.map((line) => parseTransactionLine(line, options));
 
   if (parsedLines.length > 1 && parsedLines.every((result) => result.ok)) {
     return {
@@ -282,7 +282,7 @@ export function parseCommand(input) {
   return null;
 }
 
-export function parseTransactionLine(input) {
+export function parseTransactionLine(input, options = {}) {
   const original = String(input ?? "");
   const normalized = normalizeTransactionLine(original);
 
@@ -291,12 +291,12 @@ export function parseTransactionLine(input) {
   }
 
   const signMatch = normalized.match(/^([+-])\s*/);
-  if (!signMatch) {
+  if (!signMatch && !isValidDefaultType(options.defaultType)) {
     return errorResult(REQUIRED_SIGN_MESSAGE, original);
   }
 
-  const transactionSign = signMatch[1];
-  const content = normalized.slice(signMatch[0].length).trim();
+  const transactionSign = signMatch?.[1] ?? (options.defaultType === "income" ? "+" : "-");
+  const content = signMatch ? normalized.slice(signMatch[0].length).trim() : normalized;
   if (!content) {
     return errorResult("Setelah tanda + atau - harus ada nominal dan catatan.", original);
   }
@@ -496,6 +496,10 @@ function detectTransactionType(sign) {
   }
 
   return "expense";
+}
+
+function isValidDefaultType(type) {
+  return type === "income" || type === "expense";
 }
 
 function detectCategory(note, type) {
