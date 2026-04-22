@@ -7,7 +7,7 @@ import {
   saveTransactions,
   searchTransactions,
 } from "./database.js";
-import { generateFinanceInsight } from "./ai-service.js";
+import { answerFinanceQuestion, generateFinanceInsight } from "./ai-service.js";
 import { parseInput } from "./parser.js";
 
 const JAKARTA_TIME_ZONE = "Asia/Jakarta";
@@ -24,7 +24,7 @@ const TRANSACTION_TIME_FORMATTER = new Intl.DateTimeFormat("id-ID", {
 export async function handleMessage(database, message, options = {}) {
   const variableCommand = parseVariableCommand(message);
   if (variableCommand) {
-    return handleVariableCommand(database, variableCommand);
+    return handleVariableCommand(database, variableCommand, options);
   }
 
   const parsed = parseInput(message);
@@ -103,13 +103,17 @@ export async function handleCommand(database, command, options = {}) {
   }
 }
 
-async function handleVariableCommand(database, command) {
+async function handleVariableCommand(database, command, options) {
   if (command.command === "delete_by_id") {
     return buildDeleteByIdResponse(database, command.id);
   }
 
   if (command.command === "search") {
     return buildSearchResponse(database, command.query);
+  }
+
+  if (command.command === "finance_question") {
+    return buildFinanceQuestionResponse(database, command.question, options);
   }
 
   return {
@@ -303,6 +307,24 @@ async function buildInsightResponse(database, options) {
   };
 }
 
+async function buildFinanceQuestionResponse(database, question, options) {
+  const data = await buildFinanceQuestionData(database, question, options);
+  const answerGenerator = options.answerFinanceQuestion ?? answerFinanceQuestion;
+  const aiResult = await answerGenerator(question, data);
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "finance_question",
+    question,
+    summary: data.summary,
+    categories: data.categories,
+    matchingSummary: data.matchingSummary,
+    ai: aiResult,
+    reply: aiResult.ok ? aiResult.content : buildManualQuestionReply(question, data, aiResult.reason),
+  };
+}
+
 async function buildInsightData(database) {
   const periodLabel = "semua waktu";
   const summary = await getSummary(database);
@@ -320,6 +342,30 @@ async function buildInsightData(database) {
       category: transaction.category,
       createdAt: transaction.createdAt,
     })),
+  };
+}
+
+async function buildFinanceQuestionData(database, question, options) {
+  const period = periodFromQuestion(question);
+  const range = period ? getPeriodRange(period, options.now) : {};
+  const periodLabel = period ? periodLabelForQuestion(period) : "semua waktu";
+  const summary = await getSummary(database, range);
+  const categories = await getCategorySummary(database, { ...range, limit: 8 });
+  const recentTransactions = await listTransactions(database, { ...range, limit: 5 });
+  const periodTransactions = await listTransactions(database, { ...range, limit: 100 });
+  const matchedTerms = getFinanceQuestionTerms(question, categories);
+  const matchingTransactions = filterTransactionsByTerms(periodTransactions, matchedTerms).slice(0, 10);
+  const matchingSummary = summarizeTransactions(matchingTransactions);
+
+  return {
+    periodLabel,
+    range,
+    summary,
+    categories,
+    recentTransactions: recentTransactions.map(toAiTransaction),
+    matchingTransactions: matchingTransactions.map(toAiTransaction),
+    matchingSummary,
+    matchedTerms,
   };
 }
 
@@ -356,6 +402,46 @@ function buildManualInsightReply(data, reason) {
   if (data.summary.transactionCount === 0) {
     lines.push("");
     lines.push("Belum ada data transaksi untuk dianalisis.");
+  }
+
+  return lines.join("\n");
+}
+
+function buildManualQuestionReply(question, data, reason) {
+  const lines = [
+    "Jawaban keuangan",
+    "",
+    aiFallbackLabel(reason),
+    "",
+    `Pertanyaan: ${question}`,
+    `Periode: ${data.periodLabel}`,
+    `Masuk: ${formatRupiah(data.summary.totalIncome)}`,
+    `Keluar: ${formatRupiah(data.summary.totalExpense)}`,
+    `Saldo: ${formatRupiah(data.summary.balance)}`,
+    `Transaksi: ${data.summary.transactionCount}`,
+  ];
+
+  if (data.matchingSummary.transactionCount > 0) {
+    lines.push("");
+    lines.push(`Data cocok (${data.matchedTerms.join(", ")}):`);
+    lines.push(`Keluar: ${formatRupiah(data.matchingSummary.totalExpense)}`);
+    lines.push(`Masuk: ${formatRupiah(data.matchingSummary.totalIncome)}`);
+    lines.push(`Transaksi: ${data.matchingSummary.transactionCount}`);
+  } else if (data.summary.transactionCount === 0) {
+    lines.push("");
+    lines.push("Data belum cukup untuk menjawab pertanyaan ini.");
+  } else {
+    lines.push("");
+    lines.push("Tidak ada transaksi yang cocok langsung dengan pertanyaan.");
+  }
+
+  if (data.categories.length > 0) {
+    lines.push("");
+    lines.push("Kategori terbesar:");
+    for (const category of data.categories.slice(0, 3)) {
+      const amount = category.totalExpense || category.totalIncome;
+      lines.push(`- ${category.category}: ${formatRupiah(amount)}`);
+    }
   }
 
   return lines.join("\n");
@@ -542,6 +628,14 @@ function buildHelpResponse() {
 
 function parseVariableCommand(message) {
   const text = String(message ?? "").trim();
+  const questionMatch = text.match(/^\/?(?:tanya|ask)\s+(.{3,240})$/i);
+  if (questionMatch) {
+    return {
+      command: "finance_question",
+      question: questionMatch[1].trim(),
+    };
+  }
+
   const deleteMatch = text.match(/^\/?(?:hapus|delete|remove)\s+(?:id\s*)?#?(\d+)$/i);
   if (deleteMatch) {
     return {
@@ -559,6 +653,113 @@ function parseVariableCommand(message) {
   }
 
   return null;
+}
+
+function periodFromQuestion(question) {
+  const text = String(question ?? "").toLowerCase();
+
+  if (/\b(hari ini|today)\b/.test(text)) {
+    return "today";
+  }
+
+  if (/\b(minggu ini|pekan ini|week)\b/.test(text)) {
+    return "week";
+  }
+
+  if (/\b(bulan ini|month)\b/.test(text)) {
+    return "month";
+  }
+
+  if (/\b(tahun ini|year)\b/.test(text)) {
+    return "year";
+  }
+
+  return "month";
+}
+
+function periodLabelForQuestion(period) {
+  return periodLabel(period);
+}
+
+function getFinanceQuestionTerms(question, categories) {
+  const stopWords = new Set([
+    "tanya",
+    "berapa",
+    "total",
+    "bulan",
+    "minggu",
+    "tahun",
+    "hari",
+    "ini",
+    "kenapa",
+    "pengeluaran",
+    "pemasukan",
+    "boros",
+    "aman",
+    "dimana",
+    "mana",
+    "yang",
+    "apa",
+    "ga",
+    "nggak",
+  ]);
+  const tokens = String(question ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_\-\s]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopWords.has(token));
+  const categoryTerms = categories
+    .map((category) => category.category)
+    .filter((category) => String(question).toLowerCase().includes(String(category).toLowerCase()));
+
+  return Array.from(new Set([...categoryTerms, ...tokens])).slice(0, 5);
+}
+
+function filterTransactionsByTerms(transactions, terms) {
+  if (!Array.isArray(terms) || terms.length === 0) {
+    return [];
+  }
+
+  return transactions.filter((transaction) => {
+    const haystack = [
+      transaction.note,
+      transaction.category,
+      transaction.paymentMethod,
+      transaction.original,
+      ...(transaction.tags ?? []),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return terms.some((term) => haystack.includes(String(term).toLowerCase()));
+  });
+}
+
+function summarizeTransactions(transactions) {
+  const totalIncome = transactions
+    .filter((transaction) => transaction.type === "income")
+    .reduce((total, transaction) => total + transaction.amount, 0);
+  const totalExpense = transactions
+    .filter((transaction) => transaction.type === "expense")
+    .reduce((total, transaction) => total + transaction.amount, 0);
+
+  return {
+    totalIncome,
+    totalExpense,
+    balance: totalIncome - totalExpense,
+    transactionCount: transactions.length,
+  };
+}
+
+function toAiTransaction(transaction) {
+  return {
+    type: transaction.type,
+    amount: transaction.amount,
+    note: transaction.note,
+    category: transaction.category,
+    createdAt: transaction.createdAt,
+  };
 }
 
 function formatTransaction(transaction, { includeTimestamp = false } = {}) {
