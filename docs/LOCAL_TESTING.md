@@ -22,6 +22,7 @@ Covered areas:
 - Transaction saving.
 - Balance summary.
 - Commands such as `saldo`, `riwayat`, `hari ini`, and `hapus terakhir`.
+- Edit-by-ID and `undo` for the latest soft delete.
 - Read-only `insight` command fallback behavior when AI is disabled or
   unavailable.
 - Finance Q&A, budget progress, and budget suggestion fallback behavior.
@@ -69,6 +70,8 @@ saran budget
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
 koreksi kategori 3 kopi
+undo
+edit 3 -30k makan ayam
 help
 ```
 
@@ -266,6 +269,22 @@ Invoke-RestMethod `
   -Body '{"message":"hapus terakhir"}'
 ```
 
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"undo"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"edit 1 -25k makan kategori food"}'
+```
+
 ## 4. When to Test Live Telegram
 
 Move to live Telegram testing when:
@@ -274,6 +293,7 @@ Move to live Telegram testing when:
 - `npm.cmd run test:local-chat` passes.
 - `POST /messages` can save transactions locally.
 - Commands like `saldo`, `hari ini`, `riwayat`, and `hapus terakhir` work.
+- `undo` restores only the latest deleted transaction for the same chat.
 - `.env` contains a fresh `TELEGRAM_BOT_TOKEN` from BotFather.
 
 For webhook deployment, also make sure:

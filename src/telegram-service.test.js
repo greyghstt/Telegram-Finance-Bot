@@ -56,9 +56,11 @@ describe("telegram service", () => {
     assert.equal(normalizeTelegramCommand("/insight"), "insight");
     assert.equal(normalizeTelegramCommand("/tanya bulan ini aman?"), "tanya bulan ini aman?");
     assert.equal(normalizeTelegramCommand("/budget"), "budget");
+    assert.equal(normalizeTelegramCommand("/undo"), "undo");
     assert.equal(BOT_COMMANDS.some((command) => command.command === "insight"), true);
     assert.equal(BOT_COMMANDS.some((command) => command.command === "tanya"), true);
     assert.equal(BOT_COMMANDS.some((command) => command.command === "budget"), true);
+    assert.equal(BOT_COMMANDS.some((command) => command.command === "undo"), true);
   });
 
   it("stores input mode in the database and applies it to the next message", async () => {

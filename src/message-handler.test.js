@@ -277,8 +277,25 @@ describe("message handler", () => {
 
     assert.equal(deleted.ok, true);
     assert.equal(deleted.deleted.type, "income");
+    assert.ok(deleted.deleted.deletedAt);
     assert.equal(deleted.summary.balance, -10000);
     assert.match(deleted.reply, /WIB/);
+    assert.match(deleted.reply, /Ketik undo/);
+  });
+
+  it("undoes the last soft delete", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-10k makan", { chatId: 123 });
+    await handleMessage(database, "+50k cashback", { chatId: 123 });
+    await handleMessage(database, "hapus terakhir", { chatId: 123 });
+
+    const restored = await handleMessage(database, "undo", { chatId: 123 });
+
+    assert.equal(restored.command, "undo_delete");
+    assert.equal(restored.restored.type, "income");
+    assert.equal(restored.summary.balance, 40000);
+    assert.match(restored.reply, /dikembalikan/);
   });
 
   it("deletes a transaction by id", async () => {
@@ -295,6 +312,22 @@ describe("message handler", () => {
     assert.match(deleted.reply, /Transaksi #1 dihapus/);
     assert.doesNotMatch(history.reply, /makan/);
     assert.match(history.reply, /bensin/);
+  });
+
+  it("edits a transaction by id", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-10k makan", { chatId: 123 });
+
+    const updated = await handleMessage(database, "edit 1 +25k refund", { chatId: 123 });
+    const history = await handleMessage(database, "riwayat", { chatId: 123 });
+
+    assert.equal(updated.command, "edit_by_id");
+    assert.equal(updated.transaction.type, "income");
+    assert.equal(updated.transaction.amount, 25000);
+    assert.match(updated.reply, /Transaksi #1 diperbarui/);
+    assert.match(history.reply, /refund/);
+    assert.doesNotMatch(history.reply, /makan/);
   });
 
   it("searches transactions", async () => {

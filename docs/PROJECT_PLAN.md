@@ -141,6 +141,8 @@ Free-form user text
 31. Custom category and category alias storage.
 32. Category correction command that stores note aliases.
 33. Improved ambiguous AI transaction clarification flow.
+34. Edit transaction by ID.
+35. Soft delete and undo for the latest deletion.
 
 ## Database
 
@@ -171,6 +173,7 @@ tags_json
 raw_amount
 original
 confidence
+deleted_at
 created_at
 updated_at
 ```
@@ -228,6 +231,7 @@ supabase/migrations/20260420075334_init_keuangan_schema.sql
 supabase/migrations/20260420100000_add_chat_session_pending_action.sql
 supabase/migrations/20260422235000_add_budgets.sql
 supabase/migrations/20260423113000_add_custom_categories.sql
+supabase/migrations/20260423143000_add_transaction_soft_delete.sql
 ```
 
 The migration filenames keep their original names to preserve migration
@@ -271,8 +275,10 @@ budget
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
 koreksi kategori 12 food
+edit 12 -20k bensin
 cari bensin
 hapus terakhir
+undo
 hapus 12
 export csv
 reset
@@ -872,9 +878,7 @@ Current non-AI backlog:
 2. Add GitHub Actions CI for automated tests and secret scanning on every push.
 3. Add automatic backup/export, for example a scheduled CSV export or a
    documented Supabase backup routine.
-4. Add edit transaction by ID, so mistakes can be fixed without deleting and
-   re-entering a transaction.
-5. Add an automatic monthly report from the bot.
+4. Add an automatic monthly report from the bot.
 
 AI backlog:
 

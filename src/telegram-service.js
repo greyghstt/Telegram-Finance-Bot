@@ -44,6 +44,7 @@ export const BOT_COMMANDS = [
   { command: "budget", description: "Cek atau atur budget" },
   { command: "cari", description: "Cari transaksi, contoh: /cari bensin" },
   { command: "hapusterakhir", description: "Hapus transaksi terakhir" },
+  { command: "undo", description: "Batalkan hapus transaksi terakhir" },
   { command: "export", description: "Export CSV" },
   { command: "reset", description: "Reset semua transaksi" },
   { command: "help", description: "Lihat bantuan format" },
@@ -281,6 +282,7 @@ export function normalizeTelegramCommand(text) {
     "/tanya": "ask_prompt",
     "/budget": "budget",
     "/hapusterakhir": "hapus terakhir",
+    "/undo": "undo",
     "/export": "export csv",
     "/reset": "reset_data",
   };

@@ -145,7 +145,18 @@ latest Supabase migration has been applied:
 
 ```text
 supabase/migrations/20260423113000_add_custom_categories.sql
+supabase/migrations/20260423143000_add_transaction_soft_delete.sql
 ```
+
+## Transaction Correction Checks
+
+Check that:
+
+- `edit 12 -20k bensin` updates only transaction `#12`.
+- `hapus terakhir` and `hapus 12` remove the row from normal reports without
+  physically deleting it.
+- `undo` restores only the latest deleted transaction for the same chat.
+- Summary, search, history, and category reports ignore `deleted_at` rows.
 
 ## Vercel AI Environment
 

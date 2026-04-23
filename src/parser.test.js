@@ -120,6 +120,7 @@ describe("parseInput", () => {
 
     assert.equal(parseInput("hari ini").command, "today_report");
     assert.equal(parseInput("hapus terakhir").command, "delete_last");
+    assert.equal(parseInput("undo").command, "undo_delete");
     assert.equal(parseInput("saldo dong?").command, "balance");
     assert.equal(parseInput("export csv").command, "export");
     assert.equal(parseInput("riwayat").command, "history");

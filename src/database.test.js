@@ -10,6 +10,7 @@ import {
   getBudgetProgress,
   getDatabaseStatus,
   getChatSession,
+  getDeletedTransactionById,
   getSummary,
   initializeDatabase,
   listBudgets,
@@ -18,6 +19,7 @@ import {
   listTransactions,
   saveCategoryAlias,
   openDatabase,
+  restoreTransactionById,
   saveBudget,
   saveCustomCategory,
   saveTransaction,
@@ -25,6 +27,7 @@ import {
   searchTransactions,
   setChatSessionPendingAction,
   updateTransactionCategory,
+  updateTransactionById,
 } from "./database.js";
 import { parseInput } from "./parser.js";
 
@@ -43,6 +46,7 @@ describe("database", () => {
       kind: "sqlite",
       migrations: 1,
       transactions: 0,
+      deletedTransactions: 0,
       chatSessions: 0,
       budgets: 0,
       customCategories: 0,
@@ -87,7 +91,9 @@ describe("database", () => {
 
     const deleted = await deleteLastTransaction(database);
     assert.equal(deleted.type, "income");
+    assert.ok(deleted.deletedAt);
     assert.equal((await getSummary(database)).transactionCount, 1);
+    assert.equal((await getDeletedTransactionById(database, deleted.id)).id, deleted.id);
   });
 
   it("stores and clears pending chat actions", async () => {
@@ -122,8 +128,37 @@ describe("database", () => {
     const remaining = await listTransactions(database);
 
     assert.equal(deleted.id, saved[0].id);
+    assert.ok(deleted.deletedAt);
     assert.equal(remaining.length, 1);
     assert.equal(remaining[0].note, "bensin");
+  });
+
+  it("restores soft-deleted transactions", async () => {
+    const database = await createTestDatabase();
+    const parsed = parseInput("-10k makan\n-20k bensin");
+    const saved = await saveTransactions(database, parsed.transactions);
+
+    await deleteTransactionById(database, saved[1].id);
+    const restored = await restoreTransactionById(database, saved[1].id);
+    const summary = await getSummary(database);
+
+    assert.equal(restored.id, saved[1].id);
+    assert.equal(restored.deletedAt, null);
+    assert.equal(summary.transactionCount, 2);
+  });
+
+  it("updates a transaction by id", async () => {
+    const database = await createTestDatabase();
+    const parsed = parseInput("-10k makan");
+    const saved = await saveTransaction(database, parsed.transaction);
+    const replacement = parseInput("+25k refund transport");
+
+    const updated = await updateTransactionById(database, saved.id, replacement.transaction);
+
+    assert.equal(updated.id, saved.id);
+    assert.equal(updated.type, "income");
+    assert.equal(updated.amount, 25000);
+    assert.equal(updated.note, "refund transport");
   });
 
   it("searches transactions by note and category", async () => {

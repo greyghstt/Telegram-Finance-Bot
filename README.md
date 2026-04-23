@@ -23,6 +23,8 @@ Main features:
 - Balance, daily, weekly, monthly, and yearly reports.
 - Transaction history with IDs and WIB timestamps.
 - Delete the latest transaction or delete by ID.
+- Edit transactions by ID.
+- Soft-delete transaction removal with `undo` for the latest deletion.
 - Search transactions.
 - Category summary.
 - Custom categories, stored category aliases, and category correction commands.
@@ -212,6 +214,7 @@ The Telegram commands remain Indonesian for now:
 /budget
 /cari bensin
 /hapusterakhir
+/undo
 /export
 /reset
 /help
@@ -239,8 +242,10 @@ saran budget
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
 koreksi kategori 12 food
+edit 12 -20k bensin
 cari bensin
 hapus terakhir
+undo
 hapus 12
 export csv
 reset
@@ -323,6 +328,19 @@ Custom categories and aliases are stored per Telegram chat. Corrections update
 the selected transaction and store the transaction note as an alias for the new
 category, so future AI category suggestions can normalize similar input.
 
+Transaction correction:
+
+```text
+edit 12 -20k bensin kategori transport
+hapus terakhir
+undo
+```
+
+`edit` replaces the stored transaction content for that ID using the normal
+manual parser. `hapus terakhir` and `hapus 12` now use soft delete, so active
+reports ignore the deleted row. `undo` restores the latest deleted transaction
+for the current Telegram chat only.
+
 Reset flow:
 
 1. Send `/reset`.
@@ -345,6 +363,12 @@ npm.cmd run test:local-chat
 If category storage changes are not applied yet, apply the latest Supabase
 migration before deploying code that reads `custom_categories`,
 `category_aliases`, or `chat_sessions.pending_payload`.
+
+Phase 1 transaction changes also require:
+
+```text
+supabase/migrations/20260423143000_add_transaction_soft_delete.sql
+```
 
 Set AI env vars for Preview and Production before deploying AI features:
 

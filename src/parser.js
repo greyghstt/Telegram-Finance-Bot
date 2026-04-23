@@ -40,7 +40,11 @@ const COMMAND_PATTERNS = [
   },
   {
     command: "delete_last",
-    aliases: ["hapus terakhir", "undo", "batal", "hapus transaksi terakhir", "hapus yang terakhir"],
+    aliases: ["hapus terakhir", "batal", "hapus transaksi terakhir", "hapus yang terakhir"],
+  },
+  {
+    command: "undo_delete",
+    aliases: ["undo", "undo hapus", "batalkan hapus", "kembalikan terakhir"],
   },
   {
     command: "export",

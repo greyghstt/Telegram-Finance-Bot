@@ -1,21 +1,26 @@
 import {
+  clearChatSessionPendingAction,
   clearBudgets,
   deleteLastTransaction,
   deleteBudget,
   deleteTransactionById,
   getBudgetProgress,
+  getChatSession,
   getCategorySummary,
   getSummary,
   listCategoryAliases,
   listBudgets,
   listCustomCategories,
   listTransactions,
+  restoreTransactionById,
   saveCategoryAlias,
   saveBudget,
   saveCustomCategory,
   saveTransactions,
+  setChatSessionPendingAction,
   searchTransactions,
   updateTransactionCategory,
+  updateTransactionById,
 } from "./database.js";
 import {
   answerFinanceQuestion,
@@ -158,6 +163,8 @@ export async function handleCommand(database, command, options = {}) {
       return buildInsightResponse(database, options);
     case "delete_last":
       return buildDeleteLastResponse(database, options);
+    case "undo_delete":
+      return buildUndoDeleteResponse(database, options);
     case "export":
       return buildExportResponse(database, options);
     case "reset_data":
@@ -176,6 +183,14 @@ export async function handleCommand(database, command, options = {}) {
 async function handleVariableCommand(database, command, options) {
   if (command.command === "delete_by_id") {
     return buildDeleteByIdResponse(database, command.id, options);
+  }
+
+  if (command.command === "edit_by_id") {
+    return buildEditByIdResponse(database, command, options);
+  }
+
+  if (command.command === "undo_delete") {
+    return buildUndoDeleteResponse(database, options);
   }
 
   if (command.command === "search") {
@@ -1340,6 +1355,7 @@ async function buildDeleteLastResponse(database, options) {
   }
 
   const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  await rememberUndoDelete(database, deleted, options);
 
   return {
     ok: true,
@@ -1353,6 +1369,7 @@ async function buildDeleteLastResponse(database, options) {
       formatTransaction(deleted, { includeTimestamp: true }),
       "",
       `Saldo sekarang: ${formatRupiah(summary.balance)}`,
+      "Ketik undo untuk membatalkan.",
     ].join("\n"),
   };
 }
@@ -1371,6 +1388,7 @@ async function buildDeleteByIdResponse(database, id, options) {
   }
 
   const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  await rememberUndoDelete(database, deleted, options);
 
   return {
     ok: true,
@@ -1382,6 +1400,97 @@ async function buildDeleteByIdResponse(database, id, options) {
       `Transaksi #${deleted.id} dihapus.`,
       "",
       formatTransaction(deleted, { includeTimestamp: true }),
+      "",
+      `Saldo sekarang: ${formatRupiah(summary.balance)}`,
+      "Ketik undo untuk membatalkan.",
+    ].join("\n"),
+  };
+}
+
+async function buildUndoDeleteResponse(database, options) {
+  const chatId = getChatId(options);
+  const session = await measureDb(options, "getChatSession", () => getChatSession(database, chatId));
+  const transactionId = Number(session?.pendingPayload?.transactionId ?? 0);
+
+  if (session?.pendingAction !== "undo_delete" || !Number.isSafeInteger(transactionId) || transactionId <= 0) {
+    return {
+      ok: false,
+      kind: "error",
+      command: "undo_delete",
+      reply: "Tidak ada hapus terakhir yang bisa dibatalkan.",
+    };
+  }
+
+  const restored = await measureDb(options, "restoreTransactionById", () =>
+    restoreTransactionById(database, transactionId));
+
+  if (!restored) {
+    await measureDb(options, "clearChatSessionPendingAction", () =>
+      clearChatSessionPendingAction(database, chatId));
+    return {
+      ok: false,
+      kind: "error",
+      command: "undo_delete",
+      reply: "Transaksi yang ingin dikembalikan sudah tidak tersedia.",
+    };
+  }
+
+  await measureDb(options, "clearChatSessionPendingAction", () =>
+    clearChatSessionPendingAction(database, chatId));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "undo_delete",
+    restored,
+    summary,
+    reply: [
+      `Transaksi #${restored.id} dikembalikan.`,
+      "",
+      formatTransaction(restored, { includeTimestamp: true }),
+      "",
+      `Saldo sekarang: ${formatRupiah(summary.balance)}`,
+    ].join("\n"),
+  };
+}
+
+async function buildEditByIdResponse(database, command, options) {
+  const parsed = parseInput(command.replacement);
+
+  if (!parsed.ok || parsed.kind === "command" || parsed.kind === "batch") {
+    return {
+      ok: false,
+      kind: "error",
+      command: "edit_by_id",
+      reply: "Format edit belum valid. Contoh: edit 12 -20k bensin kategori transport",
+    };
+  }
+
+  const updated = await measureDb(options, "updateTransactionById", () =>
+    updateTransactionById(database, command.id, parsed.transaction));
+
+  if (!updated) {
+    return {
+      ok: false,
+      kind: "error",
+      command: "edit_by_id",
+      reply: `Transaksi #${command.id} tidak ditemukan.`,
+    };
+  }
+
+  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "edit_by_id",
+    transaction: updated,
+    summary,
+    reply: [
+      `Transaksi #${updated.id} diperbarui.`,
+      "",
+      formatTransaction(updated, { includeTimestamp: true }),
       "",
       `Saldo sekarang: ${formatRupiah(summary.balance)}`,
     ].join("\n"),
@@ -1495,8 +1604,10 @@ function buildHelpResponse() {
       "kategori baru kopi Kopi",
       "alias kategori ngopi = kopi",
       "koreksi kategori 12 food",
+      "edit 12 -20k bensin",
       "cari bensin",
       "hapus terakhir",
+      "undo",
       "hapus 12",
       "export csv",
       "reset",
@@ -1506,6 +1617,19 @@ function buildHelpResponse() {
 
 function parseVariableCommand(message) {
   const text = String(message ?? "").trim();
+
+  if (/^\/?(?:undo|batalkan hapus|kembalikan terakhir)$/i.test(text)) {
+    return { command: "undo_delete" };
+  }
+
+  const editMatch = text.match(/^\/?(?:edit|ubah transaksi|ganti transaksi)\s+#?(\d+)\s+(.{3,240})$/i);
+  if (editMatch) {
+    return {
+      command: "edit_by_id",
+      id: Number(editMatch[1]),
+      replacement: editMatch[2].trim(),
+    };
+  }
 
   const categoryMatch = text.match(/^\/?(?:kategori baru|tambah kategori)\s+([a-zA-Z0-9_-]{2,32})(?:\s+(.{1,40}))?$/i);
   if (categoryMatch) {
@@ -1709,6 +1833,13 @@ function parseBudgetAmount(value) {
 
 function getChatId(options) {
   return String(options.chatId ?? "default");
+}
+
+async function rememberUndoDelete(database, transaction, options) {
+  return measureDb(options, "setChatSessionPendingAction", () =>
+    setChatSessionPendingAction(database, getChatId(options), "undo_delete", {
+      transactionId: transaction.id,
+    }));
 }
 
 function formatTransaction(transaction, { includeTimestamp = false, categoryContext = null } = {}) {
