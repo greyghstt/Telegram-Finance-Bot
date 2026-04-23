@@ -279,6 +279,9 @@ Current implemented state after that phase:
 - weekly AI report, monthly AI review, and anomaly checks are implemented as
   read-only summaries with manual fallback
 - GitHub Actions CI plus tracked-file secret scanning are implemented
+- production Postgres runtime init is intentionally enabled when
+  `DATABASE_URL` exists so additive schema drift does not break webhook or
+  admin routes after deploys
 
 Implementation priorities:
 
