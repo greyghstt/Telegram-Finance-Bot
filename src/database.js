@@ -110,9 +110,39 @@ export async function initializeDatabase(database) {
       )
     `;
     await database.client`create index if not exists idx_budgets_chat_period on public.budgets (chat_id, period)`;
+    await database.client`
+      create table if not exists public.custom_categories (
+        id bigint generated always as identity primary key,
+        chat_id text not null,
+        category text not null,
+        label text not null,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        unique (chat_id, category)
+      )
+    `;
+    await database.client`create index if not exists idx_custom_categories_chat_id on public.custom_categories (chat_id)`;
+    await database.client`
+      create table if not exists public.category_aliases (
+        id bigint generated always as identity primary key,
+        chat_id text not null,
+        alias text not null,
+        category text not null,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        unique (chat_id, alias)
+      )
+    `;
+    await database.client`create index if not exists idx_category_aliases_chat_id on public.category_aliases (chat_id)`;
+    await database.client`
+      alter table public.chat_sessions
+      add column if not exists pending_payload jsonb
+    `;
     await database.client`alter table public.transactions enable row level security`;
     await database.client`alter table public.chat_sessions enable row level security`;
     await database.client`alter table public.budgets enable row level security`;
+    await database.client`alter table public.custom_categories enable row level security`;
+    await database.client`alter table public.category_aliases enable row level security`;
     return;
   }
 
@@ -154,6 +184,7 @@ export async function initializeDatabase(database) {
       chat_id TEXT NOT NULL UNIQUE,
       pending_input_mode TEXT CHECK (pending_input_mode IN ('income', 'expense')),
       pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify')),
+      pending_payload TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -174,6 +205,32 @@ export async function initializeDatabase(database) {
 
     CREATE INDEX IF NOT EXISTS idx_budgets_chat_period
       ON budgets (chat_id, period);
+
+    CREATE TABLE IF NOT EXISTS custom_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      label TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(chat_id, category)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_custom_categories_chat_id
+      ON custom_categories (chat_id);
+
+    CREATE TABLE IF NOT EXISTS category_aliases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      alias TEXT NOT NULL,
+      category TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(chat_id, alias)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_category_aliases_chat_id
+      ON category_aliases (chat_id);
   `);
 
   database.client
@@ -188,6 +245,14 @@ export async function initializeDatabase(database) {
       ALTER TABLE chat_sessions
       ADD COLUMN pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify'));
     `);
+  } catch (error) {
+    if (!String(error.message).includes("duplicate column name")) {
+      throw error;
+    }
+  }
+
+  try {
+    database.client.exec("ALTER TABLE chat_sessions ADD COLUMN pending_payload TEXT;");
   } catch (error) {
     if (!String(error.message).includes("duplicate column name")) {
       throw error;
@@ -564,6 +629,146 @@ export async function getBudgetProgress(database, chatId, { from, to, period = "
   });
 }
 
+export async function saveCustomCategory(database, { chatId, category, label }) {
+  const cleanChatId = normalizeChatId(chatId);
+  const cleanCategory = normalizeCategory(category);
+  const cleanLabel = normalizeLabel(label || cleanCategory);
+
+  if (!cleanCategory || !cleanLabel) {
+    throw new Error("Kategori tidak valid.");
+  }
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      insert into public.custom_categories (chat_id, category, label, updated_at)
+      values (${cleanChatId}, ${cleanCategory}, ${cleanLabel}, now())
+      on conflict (chat_id, category)
+      do update set label = excluded.label, updated_at = now()
+      returning *
+    `;
+    return mapCustomCategoryRow(rows[0]);
+  }
+
+  const now = new Date().toISOString();
+  database.client
+    .prepare(
+      `INSERT INTO custom_categories (chat_id, category, label, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(chat_id, category)
+       DO UPDATE SET label = excluded.label, updated_at = excluded.updated_at`,
+    )
+    .run(cleanChatId, cleanCategory, cleanLabel, now, now);
+
+  return getCustomCategory(database, cleanChatId, cleanCategory);
+}
+
+export async function listCustomCategories(database, chatId) {
+  const cleanChatId = normalizeChatId(chatId);
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      select *
+      from public.custom_categories
+      where chat_id = ${cleanChatId}
+      order by category asc
+    `;
+    return rows.map(mapCustomCategoryRow);
+  }
+
+  return database.client
+    .prepare(
+      `SELECT *
+       FROM custom_categories
+       WHERE chat_id = ?
+       ORDER BY category ASC`,
+    )
+    .all(cleanChatId)
+    .map(mapCustomCategoryRow);
+}
+
+export async function saveCategoryAlias(database, { chatId, alias, category }) {
+  const cleanChatId = normalizeChatId(chatId);
+  const cleanAlias = normalizeAlias(alias);
+  const cleanCategory = normalizeCategory(category);
+
+  if (!cleanAlias || !cleanCategory) {
+    throw new Error("Alias kategori tidak valid.");
+  }
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      insert into public.category_aliases (chat_id, alias, category, updated_at)
+      values (${cleanChatId}, ${cleanAlias}, ${cleanCategory}, now())
+      on conflict (chat_id, alias)
+      do update set category = excluded.category, updated_at = now()
+      returning *
+    `;
+    return mapCategoryAliasRow(rows[0]);
+  }
+
+  const now = new Date().toISOString();
+  database.client
+    .prepare(
+      `INSERT INTO category_aliases (chat_id, alias, category, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(chat_id, alias)
+       DO UPDATE SET category = excluded.category, updated_at = excluded.updated_at`,
+    )
+    .run(cleanChatId, cleanAlias, cleanCategory, now, now);
+
+  return getCategoryAlias(database, cleanChatId, cleanAlias);
+}
+
+export async function listCategoryAliases(database, chatId) {
+  const cleanChatId = normalizeChatId(chatId);
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      select *
+      from public.category_aliases
+      where chat_id = ${cleanChatId}
+      order by alias asc
+    `;
+    return rows.map(mapCategoryAliasRow);
+  }
+
+  return database.client
+    .prepare(
+      `SELECT *
+       FROM category_aliases
+       WHERE chat_id = ?
+       ORDER BY alias ASC`,
+    )
+    .all(cleanChatId)
+    .map(mapCategoryAliasRow);
+}
+
+export async function updateTransactionCategory(database, id, category) {
+  const transactionId = Number.parseInt(id, 10);
+  const cleanCategory = normalizeCategory(category);
+
+  if (!Number.isSafeInteger(transactionId) || transactionId <= 0 || !cleanCategory) {
+    return null;
+  }
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      update public.transactions
+      set category = ${cleanCategory}, updated_at = now()
+      where id = ${transactionId}
+      returning *
+    `;
+    return rows[0] ? mapTransactionRow(rows[0]) : null;
+  }
+
+  const now = new Date().toISOString();
+  const result = database.client
+    .prepare("UPDATE transactions SET category = ?, updated_at = ? WHERE id = ?")
+    .run(cleanCategory, now, transactionId);
+
+  return result.changes > 0 ? getTransactionById(database, transactionId) : null;
+}
+
 export async function deleteLastTransaction(database) {
   if (database.kind === "postgres") {
     const rows = await database.client`
@@ -639,7 +844,9 @@ export async function getDatabaseStatus(database) {
       select
         (select count(*)::int from public.transactions) as transactions,
         (select count(*)::int from public.chat_sessions) as chat_sessions,
-        (select count(*)::int from public.budgets) as budgets
+        (select count(*)::int from public.budgets) as budgets,
+        (select count(*)::int from public.custom_categories) as custom_categories,
+        (select count(*)::int from public.category_aliases) as category_aliases
     `;
     return {
       ok: true,
@@ -647,6 +854,8 @@ export async function getDatabaseStatus(database) {
       transactions: Number(rows[0].transactions),
       chatSessions: Number(rows[0].chat_sessions),
       budgets: Number(rows[0].budgets),
+      customCategories: Number(rows[0].custom_categories),
+      categoryAliases: Number(rows[0].category_aliases),
     };
   }
 
@@ -662,6 +871,12 @@ export async function getDatabaseStatus(database) {
   const budgetCount = database.client
     .prepare("SELECT COUNT(*) AS count FROM budgets")
     .get();
+  const customCategoryCount = database.client
+    .prepare("SELECT COUNT(*) AS count FROM custom_categories")
+    .get();
+  const categoryAliasCount = database.client
+    .prepare("SELECT COUNT(*) AS count FROM category_aliases")
+    .get();
 
   return {
     ok: true,
@@ -670,6 +885,8 @@ export async function getDatabaseStatus(database) {
     transactions: Number(transactionCount.count),
     chatSessions: Number(chatSessionCount.count),
     budgets: Number(budgetCount.count),
+    customCategories: Number(customCategoryCount.count),
+    categoryAliases: Number(categoryAliasCount.count),
   };
 }
 
@@ -691,10 +908,10 @@ export async function getChatSession(database, chatId) {
 export async function setChatSessionMode(database, chatId, mode) {
   if (database.kind === "postgres") {
     const rows = await database.client`
-      insert into public.chat_sessions (chat_id, pending_input_mode, pending_action, updated_at)
-      values (${String(chatId)}, ${mode}, null, now())
+      insert into public.chat_sessions (chat_id, pending_input_mode, pending_action, pending_payload, updated_at)
+      values (${String(chatId)}, ${mode}, null, null, now())
       on conflict (chat_id)
-      do update set pending_input_mode = excluded.pending_input_mode, pending_action = null, updated_at = now()
+      do update set pending_input_mode = excluded.pending_input_mode, pending_action = null, pending_payload = null, updated_at = now()
       returning *
     `;
     return mapChatSessionRow(rows[0]);
@@ -703,10 +920,10 @@ export async function setChatSessionMode(database, chatId, mode) {
   const now = new Date().toISOString();
   database.client
     .prepare(
-      `INSERT INTO chat_sessions (chat_id, pending_input_mode, pending_action, created_at, updated_at)
-       VALUES (?, ?, NULL, ?, ?)
+      `INSERT INTO chat_sessions (chat_id, pending_input_mode, pending_action, pending_payload, created_at, updated_at)
+       VALUES (?, ?, NULL, NULL, ?, ?)
        ON CONFLICT(chat_id)
-       DO UPDATE SET pending_input_mode = excluded.pending_input_mode, pending_action = NULL, updated_at = excluded.updated_at`,
+       DO UPDATE SET pending_input_mode = excluded.pending_input_mode, pending_action = NULL, pending_payload = NULL, updated_at = excluded.updated_at`,
     )
     .run(String(chatId), mode, now, now);
 
@@ -732,13 +949,19 @@ export async function clearChatSessionMode(database, chatId) {
   return getChatSession(database, chatId);
 }
 
-export async function setChatSessionPendingAction(database, chatId, action) {
+export async function setChatSessionPendingAction(database, chatId, action, payload = null) {
+  const payloadValue = payload == null ? null : JSON.stringify(payload);
+
   if (database.kind === "postgres") {
     const rows = await database.client`
-      insert into public.chat_sessions (chat_id, pending_input_mode, pending_action, updated_at)
-      values (${String(chatId)}, null, ${action}, now())
+      insert into public.chat_sessions (chat_id, pending_input_mode, pending_action, pending_payload, updated_at)
+      values (${String(chatId)}, null, ${action}, ${payload == null ? null : database.client.json(payload)}, now())
       on conflict (chat_id)
-      do update set pending_input_mode = null, pending_action = excluded.pending_action, updated_at = now()
+      do update set
+        pending_input_mode = null,
+        pending_action = excluded.pending_action,
+        pending_payload = excluded.pending_payload,
+        updated_at = now()
       returning *
     `;
     return mapChatSessionRow(rows[0]);
@@ -747,12 +970,16 @@ export async function setChatSessionPendingAction(database, chatId, action) {
   const now = new Date().toISOString();
   database.client
     .prepare(
-      `INSERT INTO chat_sessions (chat_id, pending_input_mode, pending_action, created_at, updated_at)
-       VALUES (?, NULL, ?, ?, ?)
+      `INSERT INTO chat_sessions (chat_id, pending_input_mode, pending_action, pending_payload, created_at, updated_at)
+       VALUES (?, NULL, ?, ?, ?, ?)
        ON CONFLICT(chat_id)
-       DO UPDATE SET pending_input_mode = NULL, pending_action = excluded.pending_action, updated_at = excluded.updated_at`,
+       DO UPDATE SET
+        pending_input_mode = NULL,
+        pending_action = excluded.pending_action,
+        pending_payload = excluded.pending_payload,
+        updated_at = excluded.updated_at`,
     )
-    .run(String(chatId), action, now, now);
+    .run(String(chatId), action, payloadValue, now, now);
 
   return getChatSession(database, chatId);
 }
@@ -761,7 +988,7 @@ export async function clearChatSessionPendingAction(database, chatId) {
   if (database.kind === "postgres") {
     const rows = await database.client`
       update public.chat_sessions
-      set pending_action = null, updated_at = now()
+      set pending_action = null, pending_payload = null, updated_at = now()
       where chat_id = ${String(chatId)}
       returning *
     `;
@@ -770,7 +997,7 @@ export async function clearChatSessionPendingAction(database, chatId) {
 
   const now = new Date().toISOString();
   database.client
-    .prepare("UPDATE chat_sessions SET pending_action = NULL, updated_at = ? WHERE chat_id = ?")
+    .prepare("UPDATE chat_sessions SET pending_action = NULL, pending_payload = NULL, updated_at = ? WHERE chat_id = ?")
     .run(now, String(chatId));
 
   return getChatSession(database, chatId);
@@ -886,6 +1113,28 @@ function mapBudgetRow(row) {
   };
 }
 
+function mapCustomCategoryRow(row) {
+  return {
+    id: Number(row.id),
+    chatId: row.chat_id,
+    category: row.category,
+    label: row.label,
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
+  };
+}
+
+function mapCategoryAliasRow(row) {
+  return {
+    id: Number(row.id),
+    chatId: row.chat_id,
+    alias: row.alias,
+    category: row.category,
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
+  };
+}
+
 function mapTransactionRow(row) {
   return {
     id: Number(row.id),
@@ -915,9 +1164,54 @@ function mapChatSessionRow(row) {
     chatId: row.chat_id,
     pendingInputMode: row.pending_input_mode,
     pendingAction: row.pending_action,
+    pendingPayload: parseJsonValue(row.pending_payload),
     createdAt: normalizeTimestamp(row.created_at),
     updatedAt: normalizeTimestamp(row.updated_at),
   };
+}
+
+async function getCustomCategory(database, chatId, category) {
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      select *
+      from public.custom_categories
+      where chat_id = ${chatId} and category = ${category}
+      limit 1
+    `;
+    return rows[0] ? mapCustomCategoryRow(rows[0]) : null;
+  }
+
+  const row = database.client
+    .prepare(
+      `SELECT *
+       FROM custom_categories
+       WHERE chat_id = ? AND category = ?
+       LIMIT 1`,
+    )
+    .get(chatId, category);
+  return row ? mapCustomCategoryRow(row) : null;
+}
+
+async function getCategoryAlias(database, chatId, alias) {
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      select *
+      from public.category_aliases
+      where chat_id = ${chatId} and alias = ${alias}
+      limit 1
+    `;
+    return rows[0] ? mapCategoryAliasRow(rows[0]) : null;
+  }
+
+  const row = database.client
+    .prepare(
+      `SELECT *
+       FROM category_aliases
+       WHERE chat_id = ? AND alias = ?
+       LIMIT 1`,
+    )
+    .get(chatId, alias);
+  return row ? mapCategoryAliasRow(row) : null;
 }
 
 function normalizeTimestamp(value) {
@@ -933,11 +1227,19 @@ function parseTags(value) {
     return value;
   }
 
+  const parsed = parseJsonValue(value, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function parseJsonValue(value, fallback = null) {
+  if (value && typeof value === "object") {
+    return value;
+  }
+
   try {
-    const parsed = JSON.parse(value ?? "[]");
-    return Array.isArray(parsed) ? parsed : [];
+    return value == null ? fallback : JSON.parse(value);
   } catch {
-    return [];
+    return fallback;
   }
 }
 
@@ -947,6 +1249,22 @@ function normalizeChatId(value) {
 
 function normalizeCategory(value) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+}
+
+function normalizeAlias(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_\-\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeLabel(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
 }
 
 function clampInteger(value, min, max) {
