@@ -226,6 +226,11 @@ Check that:
 - `dompet tambah cash` and `dompet tambah bca` create per-chat wallet records.
 - `buat dompet cash`, `bikin dompet bca`, `dompet`, and `saldo dompet` should
   resolve through the same deterministic wallet command path.
+- `default dompet bank` should persist as the fallback wallet for later
+  expenses without an explicit wallet.
+- `saldo dompet bank` should return the tracked wallet balance only.
+- `set saldo dompet bank 70230` and `tambah saldo dompet bank 20k` should
+  modify wallet tracking only and must not change the income/expense summary.
 - wallet-tagged transactions such as `-20k bensin dompet cash` affect wallet
   balance and still count in the normal expense summary.
 - `transfer bca cash 50k`, `transfer dari bca ke cash 50k`, and
@@ -234,6 +239,8 @@ Check that:
 - `topup gopay 100k`, `isi saldo 150k ke dana`, `saldo awal cash 200k`, and
   `masuk ke bca 500k gaji` should save as income transactions with wallet
   metadata, not as transfers.
+- when an expense has no explicit wallet, the app should use the default wallet
+  first, then a single available wallet, and otherwise ask for clarification.
 - `transaksi rutin tambah bulanan -500k kos kategori housing` stores a rule but
   does not write a transaction until the processor runs.
 - `npm.cmd run process:recurring` should skip invalid templates and advance the
@@ -299,6 +306,9 @@ Text commands still cover some operational flows such as `transfer ...`,
 `transaksi rutin ...`, `hapus rutin ...`, and `tagihan tambah ...`.
 Malformed wallet or transfer text should return deterministic format guidance
 instead of going straight to AI extraction.
+AI-assisted wallet intent classification may help on natural phrases such as
+`saldo bank 70230`, but the app must still validate the action and ask for
+confirmation before executing a wallet balance set.
 
 Webhook incident note:
 

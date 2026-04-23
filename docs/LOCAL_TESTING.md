@@ -79,6 +79,10 @@ cek budget minggu
 saran budget
 dompet tambah cash
 dompet tambah bca
+default dompet bca
+saldo dompet bank
+set saldo dompet bank 70230
+tambah saldo dompet bank 20k
 transfer bca cash 50k tarik tunai
 transfer dari bca ke cash 50k tarik tunai
 pindah 30k dari cash ke bca
@@ -307,6 +311,10 @@ Expected behavior:
   the same deterministic transfer flow as `transfer bca cash 50k`
 - `topup gopay 100k`, `isi saldo 150k ke dana`, and `masuk ke bca 500k gaji`
   are treated as income transactions with wallet metadata
+- `set saldo dompet bank 70230` and `tambah saldo dompet bank 20k` change only
+  wallet tracking and must not change the finance summary totals
+- `default dompet bank` becomes the fallback wallet for later expenses without
+  an explicit wallet
 - recurring rules are stored safely and need an explicit processor run
 - due bill checks such as `tagihan hari ini` only show reminders for the active
   Telegram chat
@@ -326,6 +334,9 @@ With AI enabled, candidates are saved only after app-side validation.
 Wallet and transfer phrases should not use AI when the deterministic grammar is
 already sufficient. Incomplete wallet or transfer messages should return a
 format hint instead of an AI validation error.
+Ambiguous wallet-aware phrases may still use AI for intent classification, but
+the app must validate the suggested action and ask for confirmation when the
+action looks like wallet balance set.
 
 ### Performance Checks
 
