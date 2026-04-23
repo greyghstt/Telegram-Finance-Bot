@@ -13,13 +13,18 @@ import {
   getSummary,
   initializeDatabase,
   listBudgets,
+  listCategoryAliases,
+  listCustomCategories,
   listTransactions,
+  saveCategoryAlias,
   openDatabase,
   saveBudget,
+  saveCustomCategory,
   saveTransaction,
   saveTransactions,
   searchTransactions,
   setChatSessionPendingAction,
+  updateTransactionCategory,
 } from "./database.js";
 import { parseInput } from "./parser.js";
 
@@ -40,6 +45,8 @@ describe("database", () => {
       transactions: 0,
       chatSessions: 0,
       budgets: 0,
+      customCategories: 0,
+      categoryAliases: 0,
     });
   });
 
@@ -86,11 +93,13 @@ describe("database", () => {
   it("stores and clears pending chat actions", async () => {
     const database = await createTestDatabase();
 
-    await setChatSessionPendingAction(database, 123, "budget_reset_confirm");
+    await setChatSessionPendingAction(database, 123, "budget_reset_confirm", { confirm: true });
     assert.equal((await getChatSession(database, 123)).pendingAction, "budget_reset_confirm");
+    assert.deepEqual((await getChatSession(database, 123)).pendingPayload, { confirm: true });
 
     await clearChatSessionPendingAction(database, 123);
     assert.equal((await getChatSession(database, 123)).pendingAction, null);
+    assert.equal((await getChatSession(database, 123)).pendingPayload, null);
   });
 
   it("clears all transactions", async () => {
@@ -172,5 +181,39 @@ describe("database", () => {
     const cleared = await clearBudgets(database, 123);
     assert.equal(cleared.deletedCount, 1);
     assert.equal((await listBudgets(database, 123)).length, 0);
+  });
+
+  it("stores custom categories and aliases", async () => {
+    const database = await createTestDatabase();
+
+    const category = await saveCustomCategory(database, {
+      chatId: 123,
+      category: "kopi",
+      label: "Kopi",
+    });
+    const alias = await saveCategoryAlias(database, {
+      chatId: 123,
+      alias: "ngopi sore",
+      category: "kopi",
+    });
+
+    assert.equal(category.category, "kopi");
+    assert.equal(category.label, "Kopi");
+    assert.equal(alias.alias, "ngopi sore");
+    assert.equal(alias.category, "kopi");
+    assert.equal((await listCustomCategories(database, 123)).length, 1);
+    assert.equal((await listCategoryAliases(database, 123)).length, 1);
+  });
+
+  it("updates a transaction category", async () => {
+    const database = await createTestDatabase();
+    const parsed = parseInput("-20k kopi kategori other");
+    const saved = await saveTransaction(database, parsed.transaction);
+
+    const updated = await updateTransactionCategory(database, saved.id, "kopi");
+
+    assert.equal(updated.id, saved.id);
+    assert.equal(updated.category, "kopi");
+    assert.equal((await listTransactions(database))[0].category, "kopi");
   });
 });
