@@ -616,14 +616,14 @@ export async function searchTransactions(database, query, { limit = 10 } = {}) {
 
 export async function getSummary(database, { from, to } = {}) {
   if (database.kind === "postgres") {
-    const where = buildPostgresPeriodWhere(database.client, { from, to });
+    const where = buildPostgresTransactionWhere(database.client, { from, to });
     const rows = await database.client`
       select
         coalesce(sum(case when type = 'income' then amount else 0 end), 0)::int as total_income,
         coalesce(sum(case when type = 'expense' then amount else 0 end), 0)::int as total_expense,
         count(*)::int as transaction_count
       from public.transactions
-      ${appendPostgresClause(database.client, where, database.client`deleted_at is null`)}
+      ${where}
     `;
     return mapSummaryRow(rows[0]);
   }
@@ -648,7 +648,7 @@ export async function getCategorySummary(database, { from, to, limit = 8 } = {})
   const safeLimit = clampInteger(limit, 1, 20);
 
   if (database.kind === "postgres") {
-    const where = buildPostgresPeriodWhere(database.client, { from, to });
+    const where = buildPostgresTransactionWhere(database.client, { from, to });
     const rows = await database.client`
       select
         category,
@@ -656,7 +656,7 @@ export async function getCategorySummary(database, { from, to, limit = 8 } = {})
         coalesce(sum(case when type = 'expense' then amount else 0 end), 0)::int as total_expense,
         count(*)::int as transaction_count
       from public.transactions
-      ${appendPostgresClause(database.client, where, database.client`deleted_at is null`)}
+      ${where}
       group by category
       order by total_expense desc, total_income desc
       limit ${safeLimit}
@@ -1684,12 +1684,18 @@ function buildPostgresPeriodWhere(sql, { from, to } = {}) {
   return sql``;
 }
 
-function appendPostgresClause(sql, baseClause, extraCondition) {
-  if (!baseClause || String(baseClause).trim() === "") {
-    return sql`where ${extraCondition}`;
+function buildPostgresTransactionWhere(sql, { from, to } = {}) {
+  const conditions = [sql`deleted_at is null`];
+
+  if (from) {
+    conditions.push(sql`created_at >= ${from}`);
   }
 
-  return sql`${baseClause} and ${extraCondition}`;
+  if (to) {
+    conditions.push(sql`created_at < ${to}`);
+  }
+
+  return sql`where ${sql.join(conditions, sql` and `)}`;
 }
 
 function migrateSqliteChatSessionsTable(database) {
