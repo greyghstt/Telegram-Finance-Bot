@@ -75,17 +75,57 @@ async function checkTelegramWebhook() {
   const result = body.result ?? {};
   const elapsedMs = Date.now() - startedAt;
   const expectedUrl = `${productionUrl}/api/telegram/webhook`;
+  const webhookProbe = await probeWebhookRoute(expectedUrl);
 
   checks.push({
     name: "telegram webhook",
-    ok: Boolean(body.ok) && result.url === expectedUrl && !result.last_error_message,
+    ok: Boolean(body.ok)
+      && result.url === expectedUrl
+      && (result.pending_update_count ?? 0) === 0
+      && webhookProbe.ok,
     detail: [
       `${elapsedMs}ms`,
       `url=${result.url ?? "-"}`,
       `pending=${result.pending_update_count ?? "-"}`,
       `lastError=${result.last_error_message ?? "null"}`,
+      `probe=${webhookProbe.detail}`,
     ].join(" "),
   });
+}
+
+async function probeWebhookRoute(expectedUrl) {
+  if (!process.env.TELEGRAM_WEBHOOK_SECRET) {
+    return { ok: false, detail: "skipped_no_secret" };
+  }
+
+  try {
+    const response = await fetch(expectedUrl, withTimeout({
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": process.env.TELEGRAM_WEBHOOK_SECRET,
+      },
+      body: JSON.stringify({
+        update_id: 999999999,
+        message: {
+          message_id: 1,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: 0, type: "private" },
+          text: "incident webhook probe",
+        },
+      }),
+    }));
+
+    return {
+      ok: response.ok,
+      detail: `status_${response.status}`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: error.name === "TimeoutError" ? "timeout" : "probe_failed",
+    };
+  }
 }
 
 function withTimeout(options = {}) {

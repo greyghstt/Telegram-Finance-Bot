@@ -15,14 +15,15 @@ It checks:
 
 - Production `/health`.
 - `/database/status` with `ADMIN_API_TOKEN`.
-- Telegram `getWebhookInfo`.
+- Telegram `getWebhookInfo` plus a signed webhook probe when
+  `TELEGRAM_WEBHOOK_SECRET` is available locally.
 
 Healthy output should look like:
 
 ```text
 OK health - 200 ...
 OK database/status - 200 ...
-OK telegram webhook - ... pending=0 lastError=null
+OK telegram webhook - ... pending=0 ... probe=status_200
 ```
 
 ## Check Telegram Webhook
@@ -36,7 +37,36 @@ Look for:
 - `url` should be
   `https://keuangan-telegram.vercel.app/api/telegram/webhook`.
 - `pending_update_count` should be small or `0`.
-- `last_error_message` should be `null`.
+- `last_error_message` may lag behind after recovery. Treat it as historical
+  only if `pending_update_count=0` and the signed webhook probe returns `200`.
+
+If the bot has just recovered from a webhook incident, run:
+
+```powershell
+node scripts/check-production.js
+```
+
+with local `.env` available so the script can perform the signed probe.
+
+## Incident Note: Schema Drift
+
+One production incident was caused by Postgres schema drift where additive
+columns existed in code but were missing in production tables:
+
+- `transactions.deleted_at`
+- `chat_sessions.pending_payload`
+
+Symptom pattern:
+
+- `/health` stayed healthy
+- `/database/status` failed or timed out
+- Telegram webhook returned `500`
+
+Fix applied:
+
+- runtime Postgres initialization now runs whenever `DATABASE_URL` is present,
+  including on Vercel, so additive schema changes are healed with idempotent
+  `create table if not exists` and `add column if not exists` steps.
 
 ## Check Vercel Logs
 

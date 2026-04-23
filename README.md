@@ -154,6 +154,11 @@ Operational notes are in [docs/RUNBOOK.md](./docs/RUNBOOK.md).
 GitHub Actions runs `npm ci`, `npm test`, `npm run test:local-chat`, and
 `npm run scan:secrets` on pushes to `main` and on pull requests.
 
+Operational note: production Postgres now runs the idempotent schema
+initialization path at runtime whenever `DATABASE_URL` is present. This keeps
+additive columns such as soft-delete and session payload fields from drifting
+behind the deployed code on Vercel.
+
 ## Transaction Format
 
 The recommended flow is to choose an input mode first:
