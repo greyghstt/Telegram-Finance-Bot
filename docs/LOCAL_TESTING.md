@@ -28,6 +28,8 @@ Covered areas:
 - Plain-text Telegram formatting for AI-assisted replies.
 - Safe latency metrics for database, AI, and total message handling.
 - Quick AI extraction and category normalization.
+- Custom category, category alias, and category correction behavior.
+- Ambiguous AI transaction clarification through Telegram session state.
 - Telegram service behavior, including database-backed income/expense input
   modes.
 - Chat ID access control.
@@ -64,6 +66,9 @@ tanya bulan ini boros di mana?
 budget food 100k
 cek budget
 saran budget
+kategori baru kopi Kopi
+alias kategori ngopi = kopi
+koreksi kategori 3 kopi
 help
 ```
 
@@ -217,8 +222,39 @@ Expected behavior:
 - map obvious inputs to existing categories
 - map unknown suggestions to `other`
 - keep reports using friendly category labels
-- never create new categories silently unless custom category support is
-  intentionally implemented
+- never create new categories silently from unknown AI suggestions
+- create custom categories only through explicit category commands or explicit
+  correction targets
+
+Manual local examples:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"kategori baru kopi Kopi"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"alias kategori ngopi = kopi"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"koreksi kategori 1 kopi"}'
+```
+
+For ambiguous AI extraction in live Telegram, the bot should ask for
+`pemasukan`, `pengeluaran`, or `/batal`. Replying with one type should save the
+pending validated candidates and clear the pending action.
 
 ### Delete Latest Transaction
 

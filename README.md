@@ -25,6 +25,7 @@ Main features:
 - Delete the latest transaction or delete by ID.
 - Search transactions.
 - Category summary.
+- Custom categories, stored category aliases, and category correction commands.
 - AI `/insight`, finance Q&A, budget suggestions, and natural transaction
   extraction through SumoPod with compact plain-text replies and manual
   fallbacks.
@@ -235,6 +236,9 @@ budget
 cek budget
 budget food 700k
 saran budget
+kategori baru kopi Kopi
+alias kategori ngopi = kopi
+koreksi kategori 12 food
 cari bensin
 hapus terakhir
 hapus 12
@@ -300,11 +304,24 @@ gaji freelance masuk 1,5 juta
 ```
 
 AI may extract transaction candidates, but the app validates every candidate
-before saving. Ambiguous input asks the user to choose a safer flow instead of
-saving. Natural extraction uses the quick AI path with compact JSON output.
+before saving. Ambiguous input asks the user to reply `pemasukan`,
+`pengeluaran`, or `/batal`; nothing is saved before that clarification. Natural
+extraction uses the quick AI path with compact JSON output.
 AI may suggest a category, but the app normalizes it to existing categories
 such as `food`, `education`, `transport`, or `housing`; unknown suggestions
 fall back to `other`.
+
+Category management:
+
+```text
+kategori baru kopi Kopi
+alias kategori ngopi = kopi
+koreksi kategori 12 kopi
+```
+
+Custom categories and aliases are stored per Telegram chat. Corrections update
+the selected transaction and store the transaction note as an alias for the new
+category, so future AI category suggestions can normalize similar input.
 
 Reset flow:
 
@@ -324,6 +341,10 @@ Before deploying:
 npm.cmd test
 npm.cmd run test:local-chat
 ```
+
+If category storage changes are not applied yet, apply the latest Supabase
+migration before deploying code that reads `custom_categories`,
+`category_aliases`, or `chat_sessions.pending_payload`.
 
 Set AI env vars for Preview and Production before deploying AI features:
 
@@ -398,26 +419,23 @@ Invoke-RestMethod `
 
 ## Next Development Direction
 
-The current phase is **AI-first performance and flexible input upgrade**.
+The current phase is **category customization after AI-first input**.
 
 Goals:
 
-- Keep AI involvement high, but make responses feel faster.
-- Split AI behavior into quick extraction and deeper analysis paths.
-- Stop requiring `+` and `-` in normal input-mode transaction input.
-- Keep `+` and `-` as backward-compatible shortcuts.
-- Improve category detection with AI while keeping app-side validation.
-- Add custom category and alias support after AI category suggestions are
-  stable.
+- Keep AI involved in natural input and category suggestions.
+- Let users add custom categories without letting AI create messy categories
+  silently.
+- Store aliases and corrections per chat.
+- Keep `+` and `-` as backward-compatible shortcuts while input modes remain
+  the main flow.
 
 Recommended priority:
 
-1. Keep monitoring response speed for manual input, mode input, natural AI
-   input, `/insight`, `tanya`, and budget commands.
-2. Use quick AI for extraction/category JSON and deep AI for explanation.
-3. Continue optimizing prompts and payload sizes.
-4. Add custom categories and category aliases.
-5. Add learning from user category corrections.
+1. Apply and verify the category storage migration before production deploy.
+2. Test custom category, alias, and correction commands from Telegram.
+3. Watch AI natural input quality after aliases are added.
+4. Add merge/rename category commands if category usage grows.
 
 ## License
 
