@@ -1685,17 +1685,19 @@ function buildPostgresPeriodWhere(sql, { from, to } = {}) {
 }
 
 function buildPostgresTransactionWhere(sql, { from, to } = {}) {
-  const conditions = [sql`deleted_at is null`];
+  if (from && to) {
+    return sql`where deleted_at is null and created_at >= ${from} and created_at < ${to}`;
+  }
 
   if (from) {
-    conditions.push(sql`created_at >= ${from}`);
+    return sql`where deleted_at is null and created_at >= ${from}`;
   }
 
   if (to) {
-    conditions.push(sql`created_at < ${to}`);
+    return sql`where deleted_at is null and created_at < ${to}`;
   }
 
-  return sql`where ${sql.join(conditions, sql` and `)}`;
+  return sql`where deleted_at is null`;
 }
 
 function migrateSqliteChatSessionsTable(database) {
