@@ -7,6 +7,7 @@ import {
   getChatSession,
   getSummary,
   listTransactions,
+  listWallets,
   saveTransactions,
   setChatSessionMode,
   setChatSessionPendingAction,
@@ -157,6 +158,15 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
     return { handled: true, kind: "transaction_clarification", result };
   }
 
+  if (activeSession?.pendingAction === "wallet_select_clarify") {
+    const result = await handlePendingWalletSelection(database, token, chatId, text, activeSession);
+    return { handled: true, kind: "wallet_selection", result };
+  }
+
+  if (activeSession?.pendingAction === "wallet_action_clarify") {
+    await clearChatSessionPendingAction(database, chatId);
+  }
+
   if (normalizedText === "input_income" || normalizedText === "input_expense") {
     const mode = normalizedText === "input_income" ? "income" : "expense";
     await setChatSessionMode(database, chatId, mode);
@@ -172,9 +182,16 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
   });
 
   if (result.kind === "clarification") {
-    await setChatSessionPendingAction(database, chatId, "transaction_clarify", {
-      candidates: result.pendingClarification,
-    });
+    const pending = result.pendingClarification;
+    const action = pending?.action === "wallet_select_clarify"
+      ? "wallet_select_clarify"
+      : pending?.action === "wallet_action_clarify"
+        ? "wallet_action_clarify"
+        : "transaction_clarify";
+
+    await setChatSessionPendingAction(database, chatId, action, action === "transaction_clarify"
+      ? { candidates: result.pendingClarification }
+      : pending);
   }
 
   if (result.command === "export" && result.csv) {
@@ -505,6 +522,58 @@ async function handlePendingTransactionClarification(database, token, chatId, te
     saved,
     summary,
   };
+}
+
+async function handlePendingWalletSelection(database, token, chatId, text, session) {
+  const transaction = session?.pendingPayload?.transaction;
+  const wallets = Array.isArray(session?.pendingPayload?.wallets) ? session.pendingPayload.wallets : [];
+  const normalized = String(text ?? "").trim().toLowerCase();
+
+  if (!transaction) {
+    await clearChatSessionPendingAction(database, chatId);
+    await sendTelegramMessage(token, chatId, "Klarifikasi dompet sudah kedaluwarsa. Kirim ulang transaksi.", { replyMarkup: mainKeyboard });
+    return { ok: false, kind: "wallet_selection_missing" };
+  }
+
+  const walletChoice = normalized === "tanpa dompet"
+    ? null
+    : wallets.find((wallet) => wallet.toLowerCase() === normalized);
+
+  if (normalized !== "tanpa dompet" && !walletChoice) {
+    await sendTelegramMessage(
+      token,
+      chatId,
+      ["Balas dengan nama dompet yang tersedia atau `tanpa dompet`.", "", ...wallets.map((wallet) => `- ${wallet}`), "/batal"].join("\n"),
+      { replyMarkup: mainKeyboard },
+    );
+    return { ok: false, kind: "wallet_selection_pending" };
+  }
+
+  const parsed = parseTransactionLine(`-${transaction.amount} ${transaction.note}${walletChoice ? ` dompet ${walletChoice}` : ""}`);
+  if (!parsed.ok) {
+    await sendTelegramMessage(token, chatId, "Klarifikasi dompet belum valid. Kirim ulang transaksinya.", { replyMarkup: mainKeyboard });
+    return { ok: false, kind: "wallet_selection_invalid" };
+  }
+
+  const saved = await saveTransactions(database, [parsed.transaction]);
+  const summary = await getSummary(database);
+  await clearChatSessionPendingAction(database, chatId);
+  await sendTelegramMessage(token, chatId, [
+    `Pengeluaran dicatat${walletChoice ? ` dari dompet ${walletChoice}` : " tanpa dompet"}.`,
+    "",
+    "Tersimpan: 1 transaksi",
+    `Saldo: ${formatSimpleRupiah(summary.balance)}`,
+  ].join("\n"), { replyMarkup: mainKeyboard });
+
+  return { ok: true, kind: "wallet_selection_saved", saved, summary };
+}
+
+function formatSimpleRupiah(value) {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
 }
 
 function parseClarifiedTransactionType(text) {

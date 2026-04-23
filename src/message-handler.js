@@ -7,6 +7,7 @@ import {
   deleteRecurringRule,
   deleteTransactionById,
   getWalletBalances,
+  listWalletBalanceEntries,
   getBudgetProgress,
   getChatSession,
   getCategorySummary,
@@ -30,7 +31,9 @@ import {
   saveRecurringRule,
   saveTransactions,
   saveTransfer,
+  saveWalletBalanceEntry,
   saveWallet,
+  setDefaultWallet,
   setChatSessionPendingAction,
   searchTransactions,
   updateTransactionCategory,
@@ -39,6 +42,7 @@ import {
 import { exportTransactionsToCsv } from "./csv-backup.js";
 import {
   answerFinanceQuestion,
+  classifyWalletIntent,
   detectFinanceAnomalies,
   extractTransactionCandidates,
   generateBudgetSuggestion,
@@ -116,6 +120,11 @@ async function handleMessageCore(database, message, options = {}) {
     return handleVariableCommand(database, variableCommand, options);
   }
 
+  const walletIntent = await tryHandleWalletIntent(database, normalizedMessage, options);
+  if (walletIntent) {
+    return walletIntent;
+  }
+
   const parsed = parseInput(normalizedMessage, {
     defaultType: options.defaultTransactionType,
   });
@@ -156,7 +165,15 @@ async function handleMessageCore(database, message, options = {}) {
 
   const transactions =
     parsed.kind === "batch" ? parsed.transactions : [parsed.transaction];
-  const saved = await measureDb(options, "saveTransactions", () => saveTransactions(database, transactions));
+  const walletResolution = await resolveWalletAwareTransactions(database, transactions, options);
+  if (!walletResolution.ok) {
+    return walletResolution;
+  }
+  if (walletResolution.kind === "clarification") {
+    return walletResolution;
+  }
+  const saved = await measureDb(options, "saveTransactions", () =>
+    saveTransactions(database, walletResolution.transactions));
   const summary = await measureDb(options, "getSummary", () => getSummary(database));
 
   return {
@@ -276,6 +293,22 @@ async function handleVariableCommand(database, command, options) {
 
   if (command.command === "wallet_list") {
     return buildWalletListResponse(database, options);
+  }
+
+  if (command.command === "wallet_balance_query") {
+    return buildWalletBalanceQueryResponse(database, command, options);
+  }
+
+  if (command.command === "wallet_default_set") {
+    return buildWalletDefaultSetResponse(database, command, options);
+  }
+
+  if (command.command === "wallet_balance_set") {
+    return buildWalletBalanceSetResponse(database, command, options);
+  }
+
+  if (command.command === "wallet_balance_adjust") {
+    return buildWalletBalanceAdjustResponse(database, command, options);
   }
 
   if (command.command === "transfer_save") {
@@ -631,6 +664,125 @@ async function tryHandleNaturalTransaction(database, message, parsed, options) {
   };
 }
 
+async function tryHandleWalletIntent(database, message, options) {
+  const text = String(message ?? "").trim();
+  if (!text || text.startsWith("/")) {
+    return null;
+  }
+
+  const wallets = await measureDb(options, "listWallets", () => listWallets(database, getChatId(options)));
+  const session = await measureDb(options, "getChatSession", () => getChatSession(database, getChatId(options)));
+
+  if (!looksLikeWalletIntent(text) && !looksLikeTransferIntent(text) && !/\b(?:saldo|pakai|dari|ke)\b/i.test(text)) {
+    return null;
+  }
+
+  const classifier = options.classifyWalletIntent ?? classifyWalletIntent;
+  const aiResult = await measureAi(options, () =>
+    classifier(text, {
+      wallets: wallets.map((wallet) => wallet.name),
+      defaultWallet: session?.defaultWallet ?? null,
+      defaultType: options.defaultTransactionType ?? null,
+    }));
+
+  if (!aiResult.ok || Number(aiResult.confidence ?? 0) < 0.75) {
+    return null;
+  }
+
+  const normalized = normalizeAiWalletIntent(aiResult);
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.intent === "wallet_balance_set") {
+    return buildWalletActionClarificationResponse(database, text, normalized, options);
+  }
+
+  if (normalized.intent === "wallet_balance_adjust") {
+    return buildWalletBalanceAdjustResponse(database, {
+      wallet: normalized.wallet,
+      amountText: String(normalized.amount),
+      note: normalized.note,
+    }, options);
+  }
+
+  if (normalized.intent === "income_to_wallet") {
+    const parsed = parseTransactionLine(`+${normalized.amount} ${normalized.note} dompet ${normalized.wallet}`);
+    if (!parsed.ok) {
+      return null;
+    }
+    const saved = await measureDb(options, "saveTransactions", () => saveTransactions(database, [parsed.transaction]));
+    const summary = await measureDb(options, "getSummary", () => getSummary(database));
+    return { ok: true, kind: "wallet_ai_intent", command: "income_to_wallet", saved, summary, reply: buildSavedReply(saved, summary) };
+  }
+
+  if (normalized.intent === "expense_from_wallet") {
+    const parsed = parseTransactionLine(`-${normalized.amount} ${normalized.note} dompet ${normalized.wallet}`);
+    if (!parsed.ok) {
+      return null;
+    }
+    const saved = await measureDb(options, "saveTransactions", () => saveTransactions(database, [parsed.transaction]));
+    const summary = await measureDb(options, "getSummary", () => getSummary(database));
+    return { ok: true, kind: "wallet_ai_intent", command: "expense_from_wallet", saved, summary, reply: buildSavedReply(saved, summary) };
+  }
+
+  if (normalized.intent === "wallet_transfer") {
+    return buildTransferSaveResponse(database, {
+      fromWallet: normalized.fromWallet,
+      toWallet: normalized.toWallet,
+      amountText: String(normalized.amount),
+      note: normalized.note ?? "",
+    }, options);
+  }
+
+  if (normalized.intent === "balance_query" && normalized.wallet) {
+    const balances = await measureDb(options, "getWalletBalances", () => getWalletBalances(database, getChatId(options)));
+    const wallet = balances.find((item) => item.name === normalized.wallet);
+    return {
+      ok: true,
+      kind: "command",
+      command: "wallet_balance_query",
+      wallets: balances,
+      reply: wallet
+        ? `Saldo dompet ${capitalizeFirst(wallet.name)}: ${formatRupiah(wallet.balance)}`
+        : `Dompet ${capitalizeFirst(normalized.wallet)} belum ada.`,
+    };
+  }
+
+  return null;
+}
+
+async function resolveWalletAwareTransactions(database, transactions, options) {
+  const wallets = await measureDb(options, "listWallets", () => listWallets(database, getChatId(options)));
+  const session = await measureDb(options, "getChatSession", () => getChatSession(database, getChatId(options)));
+  const namedWallets = wallets.map((wallet) => wallet.name);
+  const resolved = [];
+
+  for (const transaction of transactions) {
+    if (transaction.wallet) {
+      resolved.push(transaction);
+      continue;
+    }
+
+    if (transaction.type !== "expense") {
+      resolved.push(transaction);
+      continue;
+    }
+
+    const inferredWallet = inferWalletForExpense(transaction.note, namedWallets)
+      ?? session?.defaultWallet
+      ?? (namedWallets.length === 1 ? namedWallets[0] : null);
+
+    if (!inferredWallet && namedWallets.length > 1) {
+      return buildWalletSelectionClarificationResponse(namedWallets, transaction, options);
+    }
+
+    resolved.push({ ...transaction, wallet: inferredWallet ?? null });
+  }
+
+  return { ok: true, transactions: resolved };
+}
+
 async function buildInsightResponse(database, options) {
   const data = await buildInsightData(database, options);
   const insightGenerator = options.generateFinanceInsight ?? generateFinanceInsight;
@@ -962,15 +1114,107 @@ async function buildWalletSaveResponse(database, command, options) {
 }
 
 async function buildWalletListResponse(database, options) {
+  const session = await measureDb(options, "getChatSession", () => getChatSession(database, getChatId(options)));
   const balances = await measureDb(options, "getWalletBalances", () =>
     getWalletBalances(database, getChatId(options)));
+
+  const lines = buildWalletSummaryLines(balances);
+  if (session?.defaultWallet) {
+    lines.push("", `Dompet default: ${capitalizeFirst(session.defaultWallet)}`);
+  }
 
   return {
     ok: true,
     kind: "command",
     command: "wallet_list",
     wallets: balances,
-    reply: buildWalletSummaryLines(balances).join("\n"),
+    reply: lines.join("\n"),
+  };
+}
+
+async function buildWalletDefaultSetResponse(database, command, options) {
+  const session = await measureDb(options, "setDefaultWallet", () =>
+    setDefaultWallet(database, getChatId(options), command.wallet));
+  const balances = await measureDb(options, "getWalletBalances", () =>
+    getWalletBalances(database, getChatId(options)));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "wallet_default_set",
+    session,
+    wallets: balances,
+    reply: [`Dompet default diatur ke ${capitalizeFirst(command.wallet)}.`, "", buildWalletSummaryLines(balances).join("\n")].join("\n"),
+  };
+}
+
+async function buildWalletBalanceQueryResponse(database, command, options) {
+  const balances = await measureDb(options, "getWalletBalances", () =>
+    getWalletBalances(database, getChatId(options)));
+  const wallet = balances.find((item) => item.name === normalizeWalletNameLocal(command.wallet));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "wallet_balance_query",
+    wallets: balances,
+    reply: wallet
+      ? `Saldo dompet ${capitalizeFirst(wallet.name)}: ${formatRupiah(wallet.balance)}`
+      : `Dompet ${capitalizeFirst(command.wallet)} belum ada.`,
+  };
+}
+
+async function buildWalletBalanceSetResponse(database, command, options) {
+  const amount = parseBudgetAmount(command.amountText);
+  if (!Number.isSafeInteger(amount) || amount < 0) {
+    return { ok: false, kind: "error", command: "wallet_balance_set", reply: "Saldo dompet belum valid. Contoh: set saldo dompet bank 70k" };
+  }
+
+  const entry = await measureDb(options, "saveWalletBalanceEntry", () =>
+    saveWalletBalanceEntry(database, {
+      chatId: getChatId(options),
+      wallet: command.wallet,
+      action: "set",
+      amount,
+      note: command.note ?? "set saldo dompet",
+    }));
+  const balances = await measureDb(options, "getWalletBalances", () =>
+    getWalletBalances(database, getChatId(options)));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "wallet_balance_set",
+    entry,
+    wallets: balances,
+    reply: [`Saldo dompet ${command.wallet} diatur ke ${formatRupiah(amount)}.`, "", buildWalletSummaryLines(balances).join("\n")].join("\n"),
+  };
+}
+
+async function buildWalletBalanceAdjustResponse(database, command, options) {
+  const amount = parseSignedBudgetAmount(command.amountText);
+  if (!Number.isSafeInteger(amount) || amount === 0) {
+    return { ok: false, kind: "error", command: "wallet_balance_adjust", reply: "Adjustment dompet belum valid. Contoh: tambah saldo dompet bank 20k" };
+  }
+
+  const entry = await measureDb(options, "saveWalletBalanceEntry", () =>
+    saveWalletBalanceEntry(database, {
+      chatId: getChatId(options),
+      wallet: command.wallet,
+      action: "adjust",
+      amount,
+      note: command.note ?? "adjust saldo dompet",
+    }));
+  const balances = await measureDb(options, "getWalletBalances", () =>
+    getWalletBalances(database, getChatId(options)));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "wallet_balance_adjust",
+    entry,
+    wallets: balances,
+    reply: [`Saldo dompet ${command.wallet} disesuaikan ${amount > 0 ? "naik" : "turun"} ${formatRupiah(Math.abs(amount))}.`, "", buildWalletSummaryLines(balances).join("\n")].join("\n"),
   };
 }
 
@@ -1814,6 +2058,121 @@ function buildTransactionClarificationReply(candidates) {
   return lines.join("\n");
 }
 
+function buildWalletActionClarificationResponse(database, originalText, intent, options) {
+  void database;
+  void options;
+  return {
+    ok: true,
+    kind: "clarification",
+    command: "wallet_action_clarify",
+    pendingClarification: {
+      action: "wallet_action_clarify",
+      originalText,
+      intent,
+    },
+    reply: [
+      "Input ini masih ambigu.",
+      "",
+      `Pesan: ${originalText}`,
+      "",
+      "Balas salah satu:",
+      `set saldo dompet ${intent.wallet} ${intent.amount}`,
+      `+${intent.amount} ${intent.note ?? "pemasukan"} dompet ${intent.wallet}`,
+      "/batal",
+    ].join("\n"),
+  };
+}
+
+function buildWalletSelectionClarificationResponse(wallets, transaction, options) {
+  void options;
+  return {
+    ok: true,
+    kind: "clarification",
+    command: "wallet_select_clarify",
+    pendingClarification: {
+      action: "wallet_select_clarify",
+      transaction,
+      wallets,
+    },
+    reply: [
+      "Pengeluaran ini dari dompet mana?",
+      "",
+      `${formatRupiah(transaction.amount)} ${transaction.note}`,
+      "",
+      ...wallets.map((wallet) => `- ${wallet}`),
+      "- tanpa dompet",
+      "/batal",
+    ].join("\n"),
+  };
+}
+
+function normalizeAiWalletIntent(result) {
+  const intent = String(result?.intent ?? "").trim();
+  const confidence = Number(result?.confidence ?? 0);
+  const amount = Number.parseInt(result?.amount, 10);
+  const wallet = normalizeWalletNameLocal(result?.wallet);
+  const fromWallet = normalizeWalletNameLocal(result?.fromWallet);
+  const toWallet = normalizeWalletNameLocal(result?.toWallet);
+  const note = String(result?.note ?? "").trim() || null;
+
+  if (!intent || confidence < 0.75) {
+    return null;
+  }
+
+  if (["wallet_balance_set", "wallet_balance_adjust", "income_to_wallet", "expense_from_wallet"].includes(intent)) {
+    if (!wallet || !Number.isSafeInteger(amount) || amount <= 0) {
+      return null;
+    }
+
+    return { intent, wallet, amount, note };
+  }
+
+  if (intent === "wallet_transfer") {
+    if (!fromWallet || !toWallet || fromWallet === toWallet || !Number.isSafeInteger(amount) || amount <= 0) {
+      return null;
+    }
+    return { intent, fromWallet, toWallet, amount, note };
+  }
+
+  if (intent === "balance_query") {
+    return { intent, wallet };
+  }
+
+  return null;
+}
+
+function inferWalletForExpense(note, wallets) {
+  const text = String(note ?? "").toLowerCase();
+  for (const wallet of wallets) {
+    const escaped = wallet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b(?:dompet|pakai|dari)\\s+${escaped}\\b`, "i").test(text) || new RegExp(`\\b${escaped}\\b`, "i").test(text)) {
+      return wallet;
+    }
+  }
+
+  if (/\bpakai\s+gopay\b/i.test(text) && wallets.includes("gopay")) {
+    return "gopay";
+  }
+  if (/\bpakai\s+dana\b/i.test(text) && wallets.includes("dana")) {
+    return "dana";
+  }
+  if (/\bpakai\s+cash\b/i.test(text) && wallets.includes("cash")) {
+    return "cash";
+  }
+
+  return null;
+}
+
+function normalizeWalletNameLocal(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_\-\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 32);
+}
+
 function normalizeAiCategory(value, type, context = null) {
   const resolved = resolveCategory(value, context);
   if (resolved) {
@@ -2275,6 +2634,10 @@ function buildHelpResponse() {
       "saran budget",
       "dompet tambah cash",
       "saldo dompet",
+      "saldo dompet bank",
+      "set saldo dompet bank 70k",
+      "tambah saldo dompet bank 20k",
+      "default dompet bank",
       "topup gopay 100k",
       "dompet",
       "transfer bca cash 50k",
@@ -2299,6 +2662,36 @@ function buildHelpResponse() {
 
 function parseVariableCommand(message) {
   const text = String(message ?? "").trim();
+
+  const walletDefaultMatch = text.match(/^\/?(?:default dompet|dompet default)\s+([a-zA-Z0-9_-]{2,32})$/i);
+  if (walletDefaultMatch) {
+    return { command: "wallet_default_set", wallet: walletDefaultMatch[1].trim() };
+  }
+
+  const walletBalanceSetMatch = text.match(/^\/?(?:set saldo dompet|saldo dompet set)\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i)
+    ?? text.match(/^\/?saldo dompet\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i);
+  if (walletBalanceSetMatch) {
+    return {
+      command: "wallet_balance_set",
+      wallet: walletBalanceSetMatch[1].trim(),
+      amountText: walletBalanceSetMatch[2].trim(),
+    };
+  }
+
+  const walletBalanceQueryMatch = text.match(/^\/?(?:saldo dompet|cek saldo dompet|saldo wallet)\s+([a-zA-Z0-9_-]{2,32})$/i);
+  if (walletBalanceQueryMatch) {
+    return { command: "wallet_balance_query", wallet: walletBalanceQueryMatch[1].trim() };
+  }
+
+  const walletBalanceAdjustMatch = text.match(/^\/?(?:tambah saldo dompet|kurangi saldo dompet|adjust saldo dompet)\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i);
+  if (walletBalanceAdjustMatch) {
+    const prefix = /^\/?kurangi/i.test(text) ? "-" : "";
+    return {
+      command: "wallet_balance_adjust",
+      wallet: walletBalanceAdjustMatch[1].trim(),
+      amountText: `${prefix}${walletBalanceAdjustMatch[2].trim()}`,
+    };
+  }
 
   const walletSaveMatch = text.match(
     /^\/?(?:(?:dompet|wallet|akun)\s+(?:tambah|buat|bikin|baru)|(?:tambah|buat|bikin)\s+(?:dompet|wallet|akun)|wallet add)\s+([a-zA-Z0-9_-]{2,32})$/i,
@@ -2670,6 +3063,13 @@ function parseBudgetAmount(value) {
 
   const amount = parseAmount(match[1], match[2]);
   return Number.isSafeInteger(amount) && amount > 0 ? amount : 0;
+}
+
+function parseSignedBudgetAmount(value) {
+  const text = String(value ?? "").trim();
+  const sign = text.startsWith("-") ? -1 : 1;
+  const amount = parseBudgetAmount(text.replace(/^[+-]\s*/, ""));
+  return amount > 0 ? amount * sign : 0;
 }
 
 function getChatId(options) {

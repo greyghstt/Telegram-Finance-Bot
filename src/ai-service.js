@@ -98,6 +98,42 @@ export async function extractTransactionCandidates(text, context = {}, options =
   }
 }
 
+export async function classifyWalletIntent(text, context = {}, options = {}) {
+  const result = await createChatCompletion({
+    data: { text, context },
+    options,
+    profile: PROFILE_QUICK,
+    messageBuilder: buildWalletIntentMessages,
+  });
+
+  if (!result.ok) {
+    return result;
+  }
+
+  try {
+    const parsed = JSON.parse(stripJsonFence(result.content));
+    return {
+      ok: true,
+      enabled: true,
+      provider: result.provider,
+      model: result.model,
+      profile: result.profile,
+      latencyMs: result.latencyMs,
+      intent: parsed?.intent ?? "unknown_or_ambiguous",
+      wallet: parsed?.wallet ?? null,
+      fromWallet: parsed?.fromWallet ?? null,
+      toWallet: parsed?.toWallet ?? null,
+      amount: parsed?.amount ?? null,
+      note: parsed?.note ?? null,
+      type: parsed?.type ?? null,
+      confidence: parsed?.confidence ?? 0,
+      raw: result.content,
+    };
+  } catch {
+    return fallbackResult("invalid_json", PROFILE_QUICK);
+  }
+}
+
 async function createChatCompletion({ data, options, profile, messageBuilder }) {
   const env = options.env ?? process.env;
   const config = readAiConfig(env);
@@ -348,6 +384,34 @@ function buildTransactionExtractionMessages(data) {
             "income",
             "other",
           ],
+        },
+      }),
+    },
+  ];
+}
+
+function buildWalletIntentMessages(data) {
+  return [
+    {
+      role: "system",
+      content: [
+        "Klasifikasikan intent keuangan dompet Bahasa Indonesia.",
+        "Balas JSON valid saja.",
+        "Intent yang boleh: wallet_create, wallet_balance_set, wallet_balance_adjust, income_save, income_to_wallet, expense_save, expense_from_wallet, wallet_transfer, balance_query, unknown_or_ambiguous.",
+        "Format: {\"intent\":string,\"wallet\":string|null,\"fromWallet\":string|null,\"toWallet\":string|null,\"amount\":number|null,\"note\":string|null,\"type\":\"income|expense|null\",\"confidence\":0.0}",
+        "Jangan mengarang nominal atau wallet jika tidak jelas.",
+        "Jika ambigu, gunakan unknown_or_ambiguous.",
+        "Untuk aksi sensitif seperti set saldo dompet, cukup klasifikasikan intent; jangan berasumsi itu aman dieksekusi otomatis.",
+      ].join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
+        text: String(data?.text ?? ""),
+        context: {
+          wallets: Array.isArray(data?.context?.wallets) ? data.context.wallets.slice(0, 10) : [],
+          defaultWallet: data?.context?.defaultWallet ?? null,
+          defaultType: data?.context?.defaultType ?? null,
         },
       }),
     },
