@@ -10,6 +10,7 @@ import {
   saveTransactions,
   shouldInitializeDatabaseAtRuntime,
 } from "./database.js";
+import { exportTransactionsToCsv, importTransactionsFromCsv } from "./csv-backup.js";
 import { handleMessage } from "./message-handler.js";
 import { parseInput } from "./parser.js";
 import { requireAdmin } from "./security.js";
@@ -39,6 +40,8 @@ app.get("/", (req, res) => {
       "- GET /transactions",
       "- GET /summary",
       "- DELETE /transactions/last",
+      "- GET /backup/csv",
+      "- POST /import/csv",
       "",
       "Keep the npm run dev terminal open while testing localhost.",
     ].join("\n"),
@@ -148,4 +151,21 @@ app.delete("/transactions/last", requireAdmin, async (req, res) => {
 
 app.listen(port, () => {
   console.log(`Telegram Finance Bot running at http://localhost:${port}`);
+});
+
+app.get("/backup/csv", requireAdmin, async (req, res) => {
+  await databaseReady;
+  const exported = await exportTransactionsToCsv(database, { limit: req.query.limit ?? 10000 });
+  const filename = `telegram-finance-bot-backup-${new Date().toISOString().slice(0, 10)}.csv`;
+  res.setHeader("content-type", "text/csv; charset=utf-8");
+  res.setHeader("content-disposition", `attachment; filename="${filename}"`);
+  res.send(exported.csv);
+});
+
+app.post("/import/csv", requireAdmin, async (req, res) => {
+  await databaseReady;
+  const result = await importTransactionsFromCsv(database, req.body?.csv ?? "", {
+    dryRun: req.body?.dryRun !== false,
+  });
+  res.status(result.ok ? 200 : 400).json(result);
 });

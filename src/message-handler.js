@@ -22,6 +22,7 @@ import {
   updateTransactionCategory,
   updateTransactionById,
 } from "./database.js";
+import { exportTransactionsToCsv } from "./csv-backup.js";
 import {
   answerFinanceQuestion,
   extractTransactionCandidates,
@@ -202,7 +203,7 @@ async function handleVariableCommand(database, command, options) {
   }
 
   if (command.command === "budget_list") {
-    return buildBudgetListResponse(database, options);
+    return buildBudgetListResponse(database, { ...options, budgetPeriod: command.period });
   }
 
   if (command.command === "budget_set") {
@@ -210,15 +211,15 @@ async function handleVariableCommand(database, command, options) {
   }
 
   if (command.command === "budget_delete") {
-    return buildBudgetDeleteResponse(database, command.category, options);
+    return buildBudgetDeleteResponse(database, command.category, { ...options, budgetPeriod: command.period });
   }
 
   if (command.command === "budget_reset") {
-    return buildBudgetResetInstructionResponse(database, options);
+    return buildBudgetResetInstructionResponse(database, { ...options, budgetPeriod: command.period });
   }
 
   if (command.command === "budget_suggestion") {
-    return buildBudgetSuggestionResponse(database, options);
+    return buildBudgetSuggestionResponse(database, { ...options, budgetPeriod: command.period });
   }
 
   if (command.command === "custom_category_save") {
@@ -606,7 +607,7 @@ async function buildBudgetSetResponse(database, command, options) {
       ok: false,
       kind: "error",
       command: "budget_set",
-      reply: "Nominal budget belum valid. Contoh: budget food 700k",
+      reply: "Nominal budget belum valid. Contoh: budget food 700k atau budget minggu global 500k",
     };
   }
 
@@ -614,8 +615,9 @@ async function buildBudgetSetResponse(database, command, options) {
     chatId: getChatId(options),
     category: command.category,
     monthlyLimit: amount,
+    period: command.period,
   }));
-  const data = await buildBudgetData(database, options);
+  const data = await buildBudgetData(database, { ...options, budgetPeriod: command.period });
 
   return {
     ok: true,
@@ -626,7 +628,7 @@ async function buildBudgetSetResponse(database, command, options) {
     reply: [
       `Budget ${formatCategoryLabel(budget.category)} disimpan.`,
       "",
-      `${formatCategoryLabel(budget.category)}: ${formatRupiah(budget.monthlyLimit)} per bulan`,
+      `${formatCategoryLabel(budget.category)}: ${formatRupiah(budget.monthlyLimit)} per ${budgetPeriodUnitLabel(budget.period)}`,
       "",
       buildBudgetProgressReply(data),
     ].join("\n"),
@@ -634,15 +636,16 @@ async function buildBudgetSetResponse(database, command, options) {
 }
 
 async function buildBudgetDeleteResponse(database, category, options) {
+  const period = options.budgetPeriod ?? "monthly";
   const deleted = await measureDb(options, "deleteBudget", () =>
-    deleteBudget(database, getChatId(options), category));
+    deleteBudget(database, getChatId(options), category, { period }));
 
   if (!deleted) {
     return {
       ok: false,
       kind: "error",
       command: "budget_delete",
-      reply: `Budget ${category} tidak ditemukan.`,
+      reply: `Budget ${category} tidak ditemukan untuk ${periodLabel(period)}.`,
     };
   }
 
@@ -651,12 +654,13 @@ async function buildBudgetDeleteResponse(database, category, options) {
     kind: "command",
     command: "budget_delete",
     deleted,
-    reply: `Budget ${formatCategoryLabel(deleted.category)} dihapus.`,
+    reply: `Budget ${formatCategoryLabel(deleted.category)} ${periodLabel(deleted.period)} dihapus.`,
   };
 }
 
 async function buildBudgetResetInstructionResponse(database, options) {
-  const budgets = await measureDb(options, "listBudgets", () => listBudgets(database, getChatId(options)));
+  const period = options.budgetPeriod ?? "monthly";
+  const budgets = await measureDb(options, "listBudgets", () => listBudgets(database, getChatId(options), { period }));
 
   return {
     ok: true,
@@ -666,7 +670,7 @@ async function buildBudgetResetInstructionResponse(database, options) {
     reply: [
       "Reset budget butuh konfirmasi.",
       "",
-      `Jumlah budget: ${budgets.length}`,
+      `Jumlah budget ${periodLabel(period)}: ${budgets.length}`,
       "Di Telegram, pakai reset budget lalu balas:",
       "YA RESET BUDGET",
       "",
@@ -853,13 +857,15 @@ async function buildFinanceQuestionData(database, question, options) {
 }
 
 async function buildBudgetData(database, options) {
-  const range = getPeriodRange("month", options.now);
+  const budgetPeriod = options.budgetPeriod ?? "monthly";
+  const range = getBudgetRange(budgetPeriod, options.now);
   const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
   const budgets = await measureDb(options, "getBudgetProgress", () =>
-    getBudgetProgress(database, getChatId(options), range));
+    getBudgetProgress(database, getChatId(options), { ...range, period: budgetPeriod }));
 
   return {
-    periodLabel: "bulan ini",
+    periodLabel: periodLabel(budgetPeriod),
+    budgetPeriod,
     range,
     summary,
     budgets,
@@ -1000,10 +1006,10 @@ function buildQuestionSummaryLines(question, data) {
 }
 
 function buildBudgetProgressReply(data) {
-  const lines = ["Budget bulan ini"];
+  const lines = [`Budget ${data.periodLabel}`];
 
   if (data.budgets.length === 0) {
-    lines.push("", "Belum ada budget. Contoh: budget food 700k");
+    lines.push("", `Belum ada budget. Contoh: ${budgetExampleForPeriod(data.budgetPeriod)}`);
     return lines.join("\n");
   }
 
@@ -1028,7 +1034,7 @@ function buildManualBudgetSuggestionReply(data, reason) {
   const lines = [buildBudgetHeadline(data), "", aiFallbackLabel(reason)];
 
   if (data.budgets.length === 0) {
-    lines.push("", "Belum ada budget. Mulai dari kategori terbesar, misalnya: budget food 700k");
+    lines.push("", `Belum ada budget. Mulai dari: ${budgetExampleForPeriod(data.budgetPeriod)}`);
     return lines.join("\n");
   }
 
@@ -1043,7 +1049,7 @@ function buildManualBudgetSuggestionReply(data, reason) {
     lines.push(`Perlu dijaga: ${formatBudgetCategoryList(warning)} sudah mendekati batas.`);
   } else {
     lines.push("");
-    lines.push("Budget bulan ini masih aman berdasarkan data yang tercatat.");
+    lines.push(`Budget ${data.periodLabel} masih aman berdasarkan data yang tercatat.`);
   }
 
   lines.push("");
@@ -1077,6 +1083,30 @@ function buildAiBudgetSuggestionReply(data, content) {
 
 function buildBudgetHeadline(data) {
   return `Saran budget ${data.periodLabel}`;
+}
+
+function budgetExampleForPeriod(period) {
+  if (period === "weekly") {
+    return "budget minggu food 200k";
+  }
+
+  if (period === "yearly") {
+    return "budget tahun global 12jt";
+  }
+
+  return "budget food 700k";
+}
+
+function budgetPeriodUnitLabel(period) {
+  if (period === "weekly") {
+    return "minggu";
+  }
+
+  if (period === "yearly") {
+    return "tahun";
+  }
+
+  return "bulan";
 }
 
 function formatBudgetCategoryList(budgets) {
@@ -1315,6 +1345,7 @@ function formatCategoryLabel(value, context = null) {
     donation: "Donasi",
     debt: "Utang",
     income: "Pemasukan",
+    global: "Global",
     other: "Lainnya",
   };
 
@@ -1522,33 +1553,20 @@ async function buildSearchResponse(database, query, options) {
 }
 
 async function buildExportResponse(database, options) {
-  const transactions = await measureDb(options, "listTransactions", () =>
-    listTransactions(database, { limit: 100 }));
   const generatedAt = new Date().toISOString();
-  const header = "id,type,amount,note,category,payment_method,created_at_local,created_at";
-  const rows = transactions.map((transaction) =>
-    [
-      transaction.id,
-      transaction.type,
-      transaction.amount,
-      csvCell(transaction.note),
-      transaction.category,
-      transaction.paymentMethod ?? "",
-      csvCell(formatTransactionTimestamp(transaction.createdAt)),
-      transaction.createdAt,
-    ].join(","),
-  );
+  const exported = await measureDb(options, "exportTransactionsToCsv", () =>
+    exportTransactionsToCsv(database, { limit: 1000 }));
 
   return {
     ok: true,
     kind: "command",
     command: "export",
     filename: `telegram-finance-bot-${generatedAt.slice(0, 10)}.csv`,
-    csv: [header, ...rows].join("\n"),
+    csv: exported.csv,
     reply: [
       "Export CSV siap.",
       "",
-      `Jumlah transaksi: ${transactions.length}`,
+      `Jumlah transaksi: ${exported.count}`,
       "Di Telegram, file CSV akan dikirim sebagai dokumen.",
     ].join("\n"),
   };
@@ -1600,6 +1618,8 @@ function buildHelpResponse() {
       "tanya bulan ini boros di mana?",
       "budget",
       "budget food 700k",
+      "budget minggu global 120k",
+      "cek budget minggu",
       "saran budget",
       "kategori baru kopi Kopi",
       "alias kategori ngopi = kopi",
@@ -1617,6 +1637,57 @@ function buildHelpResponse() {
 
 function parseVariableCommand(message) {
   const text = String(message ?? "").trim();
+
+  const budgetPeriodAlias = String(text ?? "")
+    .replace(/^\/?budget\s+minggu\s+/i, "/budget weekly ")
+    .replace(/^\/?budget\s+bulan\s+/i, "/budget monthly ")
+    .replace(/^\/?budget\s+tahun\s+/i, "/budget yearly ")
+    .replace(/^\/?cek budget\s+minggu$/i, "/budget-list weekly")
+    .replace(/^\/?cek budget\s+bulan$/i, "/budget-list monthly")
+    .replace(/^\/?cek budget\s+tahun$/i, "/budget-list yearly")
+    .replace(/^\/?saran budget\s+minggu$/i, "/budget-suggestion weekly")
+    .replace(/^\/?saran budget\s+bulan$/i, "/budget-suggestion monthly")
+    .replace(/^\/?saran budget\s+tahun$/i, "/budget-suggestion yearly")
+    .replace(/^\/?reset budget\s+minggu$/i, "/budget-reset weekly")
+    .replace(/^\/?reset budget\s+bulan$/i, "/budget-reset monthly")
+    .replace(/^\/?reset budget\s+tahun$/i, "/budget-reset yearly")
+    .replace(/^\/?(?:hapus|delete)\s+budget\s+minggu\s+/i, "/budget-delete weekly ")
+    .replace(/^\/?(?:hapus|delete)\s+budget\s+bulan\s+/i, "/budget-delete monthly ")
+    .replace(/^\/?(?:hapus|delete)\s+budget\s+tahun\s+/i, "/budget-delete yearly ");
+
+  const periodBudgetSetMatch = budgetPeriodAlias.match(/^\/?budget\s+(weekly|monthly|yearly)\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i);
+  if (periodBudgetSetMatch) {
+    return {
+      command: "budget_set",
+      period: periodBudgetSetMatch[1].toLowerCase(),
+      category: periodBudgetSetMatch[2].trim(),
+      amountText: periodBudgetSetMatch[3].trim(),
+    };
+  }
+
+  const periodBudgetListMatch = budgetPeriodAlias.match(/^\/?budget-list\s+(weekly|monthly|yearly)$/i);
+  if (periodBudgetListMatch) {
+    return { command: "budget_list", period: periodBudgetListMatch[1].toLowerCase() };
+  }
+
+  const periodBudgetDeleteMatch = budgetPeriodAlias.match(/^\/?budget-delete\s+(weekly|monthly|yearly)\s+([a-zA-Z0-9_-]{2,32})$/i);
+  if (periodBudgetDeleteMatch) {
+    return {
+      command: "budget_delete",
+      period: periodBudgetDeleteMatch[1].toLowerCase(),
+      category: periodBudgetDeleteMatch[2].trim(),
+    };
+  }
+
+  const periodBudgetResetMatch = budgetPeriodAlias.match(/^\/?budget-reset\s+(weekly|monthly|yearly)$/i);
+  if (periodBudgetResetMatch) {
+    return { command: "budget_reset", period: periodBudgetResetMatch[1].toLowerCase() };
+  }
+
+  const periodBudgetSuggestionMatch = budgetPeriodAlias.match(/^\/?budget-suggestion\s+(weekly|monthly|yearly)$/i);
+  if (periodBudgetSuggestionMatch) {
+    return { command: "budget_suggestion", period: periodBudgetSuggestionMatch[1].toLowerCase() };
+  }
 
   if (/^\/?(?:undo|batalkan hapus|kembalikan terakhir)$/i.test(text)) {
     return { command: "undo_delete" };
@@ -1662,29 +1733,31 @@ function parseVariableCommand(message) {
   if (budgetSetMatch) {
     return {
       command: "budget_set",
+      period: "monthly",
       category: budgetSetMatch[1].trim(),
       amountText: budgetSetMatch[2].trim(),
     };
   }
 
   if (/^\/?(?:budget|cek budget)$/i.test(text)) {
-    return { command: "budget_list" };
+    return { command: "budget_list", period: "monthly" };
   }
 
   const budgetDeleteMatch = text.match(/^\/?(?:hapus|delete)\s+budget\s+([a-zA-Z0-9_-]{2,32})$/i);
   if (budgetDeleteMatch) {
     return {
       command: "budget_delete",
+      period: "monthly",
       category: budgetDeleteMatch[1].trim(),
     };
   }
 
   if (/^\/?reset\s+budget$/i.test(text)) {
-    return { command: "budget_reset" };
+    return { command: "budget_reset", period: "monthly" };
   }
 
   if (/^\/?saran\s+budget$/i.test(text)) {
-    return { command: "budget_suggestion" };
+    return { command: "budget_suggestion", period: "monthly" };
   }
 
   const questionMatch = text.match(/^\/?(?:tanya|ask)\s+(.{3,240})$/i);
@@ -1866,11 +1939,26 @@ function periodLabel(period) {
   const labels = {
     today: "hari ini",
     week: "minggu ini",
+    weekly: "minggu ini",
     month: "bulan ini",
+    monthly: "bulan ini",
     year: "tahun ini",
+    yearly: "tahun ini",
   };
 
   return labels[period] ?? period;
+}
+
+function getBudgetRange(period, now = new Date()) {
+  if (period === "weekly") {
+    return getPeriodRange("week", now);
+  }
+
+  if (period === "yearly") {
+    return getPeriodRange("year", now);
+  }
+
+  return getPeriodRange("month", now);
 }
 
 function getJakartaDateParts(date) {
@@ -1907,6 +1995,3 @@ function weekdayNumber(value) {
   return weekdays[value] ?? 0;
 }
 
-function csvCell(value) {
-  return `"${String(value ?? "").replaceAll('"', '""')}"`;
-}

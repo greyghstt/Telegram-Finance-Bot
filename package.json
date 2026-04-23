@@ -11,6 +11,8 @@
     "telegram": "node src/telegram-bot.js",
     "ensure:secrets": "node scripts/ensure-local-secrets.js",
     "setup:webhook": "node scripts/setup-telegram-webhook.js",
+    "backup:csv": "node scripts/backup-csv.js",
+    "import:csv": "node scripts/import-csv.js",
     "check:production": "node scripts/check-production.js",
     "test": "node --test",
     "test:local-chat": "node scripts/local-chat-scenario.js"

@@ -31,6 +31,8 @@ Covered areas:
 - Quick AI extraction and category normalization.
 - Custom category, category alias, and category correction behavior.
 - Ambiguous AI transaction clarification through Telegram session state.
+- CSV backup export and CSV import dry-run/apply flow.
+- Weekly/monthly/yearly budgets, including `global` budget.
 - Telegram service behavior, including database-backed income/expense input
   modes.
 - Chat ID access control.
@@ -66,6 +68,8 @@ insight
 tanya bulan ini boros di mana?
 budget food 100k
 cek budget
+budget minggu global 120k
+cek budget minggu
 saran budget
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
@@ -180,6 +184,59 @@ Invoke-RestMethod `
   -Method Post `
   -ContentType "application/json" `
   -Body '{"message":"cek budget"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"budget minggu global 120k"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"cek budget minggu"}'
+```
+
+### CSV Backup And Import
+
+Export a backup file locally:
+
+```powershell
+npm.cmd run backup:csv
+```
+
+Dry-run a CSV import:
+
+```powershell
+npm.cmd run import:csv -- .\backups\telegram-finance-bot-YYYY-MM-DDTHH-mm-ss.csv
+```
+
+Apply the import:
+
+```powershell
+npm.cmd run import:csv -- .\backups\telegram-finance-bot-YYYY-MM-DDTHH-mm-ss.csv --apply
+```
+
+Admin endpoints:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/backup/csv" `
+  -Headers @{"x-admin-api-token"=$env:ADMIN_API_TOKEN}
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/import/csv" `
+  -Method Post `
+  -Headers @{"x-admin-api-token"=$env:ADMIN_API_TOKEN} `
+  -ContentType "application/json" `
+  -Body (@{csv=(Get-Content .\backups\sample.csv -Raw); dryRun=$true} | ConvertTo-Json)
 ```
 
 ### Natural Input

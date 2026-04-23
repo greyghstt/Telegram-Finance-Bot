@@ -468,6 +468,22 @@ describe("message handler", () => {
     assert.match(listed.reply, /Rp\u00a0450.000 \/ Rp\u00a0700.000 \(64%\)/);
   });
 
+  it("supports global and weekly budget commands", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-90k makan kategori food");
+    await handleMessage(database, "-10k parkir kategori transport");
+
+    const saved = await handleMessage(database, "budget minggu global 120k", { chatId: 123 });
+    const listed = await handleMessage(database, "cek budget minggu", { chatId: 123 });
+
+    assert.equal(saved.command, "budget_set");
+    assert.equal(saved.budget.category, "global");
+    assert.equal(saved.budget.period, "weekly");
+    assert.match(listed.reply, /Budget minggu ini/);
+    assert.match(listed.reply, /Global: Rp\u00a0100.000 \/ Rp\u00a0120.000 \(83%\)/);
+  });
+
   it("deletes budgets and requires reset instructions", async () => {
     const database = await createTestDatabase();
 
@@ -477,7 +493,7 @@ describe("message handler", () => {
     const reset = await handleMessage(database, "reset budget", { chatId: 123 });
 
     assert.equal(deleted.command, "budget_delete");
-    assert.match(deleted.reply, /Budget Makanan dihapus/);
+    assert.match(deleted.reply, /Budget Makanan bulan ini dihapus/);
     assert.equal(reset.command, "budget_reset");
     assert.match(reset.reply, /butuh konfirmasi/);
   });

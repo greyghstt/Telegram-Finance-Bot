@@ -24,6 +24,8 @@ const messages = [
   "tanya bulan ini boros di mana?",
   "budget food 100k",
   "cek budget",
+  "budget minggu global 120k",
+  "cek budget minggu",
   "saran budget",
   "kategori baru kopi Kopi",
   "alias kategori ngopi = kopi",
