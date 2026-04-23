@@ -26,6 +26,8 @@ Covered areas:
   unavailable.
 - Finance Q&A, budget progress, and budget suggestion fallback behavior.
 - Plain-text Telegram formatting for AI-assisted replies.
+- Safe latency metrics for database, AI, and total message handling.
+- Quick AI extraction and category normalization.
 - Telegram service behavior, including database-backed income/expense input
   modes.
 - Chat ID access control.
@@ -185,25 +187,23 @@ Invoke-RestMethod `
 With AI disabled or unavailable, this falls back to manual format guidance.
 With AI enabled, candidates are saved only after app-side validation.
 
-### Future Performance Tests
+### Performance Checks
 
-The next optimization phase should add a repeatable way to compare response
-time across:
+Message handler results include safe timing metrics for:
 
-- mode input without signs
-- natural AI input
-- `insight`
-- `tanya bulan ini boros di mana?`
-- `cek budget`
-- `saran budget`
+- database calls
+- AI calls
+- total message handling
 
-The goal is to keep AI involved while making each AI path more focused.
-Quick AI paths should return compact JSON. Deep AI paths may return richer
-plain-text explanations.
+Set `PERF_LOGS=1` only while investigating latency. The logs are compact JSON
+and do not include message text, chat IDs, notes, or secrets.
 
-### Future Category Tests
+Quick AI paths return compact JSON. Deep AI paths may return richer plain-text
+explanations.
 
-AI category suggestions should be tested with examples such as:
+### Category Tests
+
+AI category suggestions are tested with examples such as:
 
 ```text
 ayam geprek dekat kampus
@@ -215,7 +215,7 @@ bayar kos
 Expected behavior:
 
 - map obvious inputs to existing categories
-- reject or clarify ambiguous categories
+- map unknown suggestions to `other`
 - keep reports using friendly category labels
 - never create new categories silently unless custom category support is
   intentionally implemented

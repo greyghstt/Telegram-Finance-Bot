@@ -240,6 +240,7 @@ AI_MODEL=MiniMax-M2.7-highspeed
 AI_TEMPERATURE=0.2
 AI_MAX_TOKENS=2500
 AI_TIMEOUT_MS=25000
+PERF_LOGS=0
 ```
 
 AI must be introduced in this order:
@@ -276,6 +277,10 @@ Implementation priorities:
 5. Keep `+` and `-` as optional backward-compatible shortcuts.
 6. Add AI category suggestion with app-side normalization.
 7. Add custom category and alias support after suggestions are stable.
+
+Safe latency logs are enabled with `PERF_LOGS=1`. They must stay compact and
+must not include message text, chat IDs, transaction notes, API keys, database
+URLs, or tokens.
 
 Quick AI should be used for:
 
