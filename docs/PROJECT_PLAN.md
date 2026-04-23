@@ -134,6 +134,10 @@ Free-form user text
 25. Finance Q&A that explains code-calculated summaries.
 26. Monthly budget commands with AI/manual suggestions.
 27. Guardrailed AI natural transaction extraction.
+28. Safe latency metrics for database work, AI calls, and total message
+    handling.
+29. Quick/deep AI profiles while keeping `MiniMax-M2.7-highspeed`.
+30. AI category suggestions normalized to existing categories.
 
 ## Database
 
@@ -707,6 +711,15 @@ Recommended behavior:
 - Measure AI latency, database latency, and total response latency.
 - Keep MiniMax-M2.7-highspeed as the fixed model for now.
 
+Current implementation:
+
+- Quick AI uses the same fixed model with smaller token and timeout caps in
+  code.
+- Deep AI keeps the configured `AI_MAX_TOKENS=2500` and
+  `AI_TIMEOUT_MS=25000` defaults.
+- Safe performance logs are optional through `PERF_LOGS=1` and do not include
+  message text, API keys, chat IDs, or transaction notes.
+
 Suggested environment direction:
 
 ```env
@@ -755,7 +768,7 @@ Rules:
 
 Categories should become more flexible without letting AI create messy data.
 
-Target behavior:
+Implemented behavior:
 
 ```text
 ayam geprek dekat kampus -> food
@@ -783,14 +796,11 @@ Future category features:
 
 ### Recommended Next Implementation Order
 
-1. Add latency instrumentation for database, AI, and total response time.
-2. Add quick/deep AI profiles in code.
-3. Optimize natural parser prompts and output size.
-4. Make unsigned input the main documented and tested flow.
-5. Add AI category suggestion with app-side normalization.
-6. Add custom category and alias storage.
-7. Add category correction commands.
-8. Add AI weekly/monthly report after performance is stable.
+1. Keep monitoring latency metrics in local and production checks.
+2. Continue optimizing natural parser prompts and output size.
+3. Add custom category and alias storage.
+4. Add category correction commands.
+5. Add AI weekly/monthly report after performance is stable.
 
 ## Verification Commands
 
@@ -827,12 +837,10 @@ Current non-AI backlog:
 
 AI backlog:
 
-1. Add quick/deep AI profiles for speed without reducing AI involvement.
-2. Add AI category suggestions with app-side normalization.
-3. Add custom categories and category aliases.
-4. Improve clarification flow for ambiguous AI transaction candidates.
-5. Add budget editing shortcuts if needed.
-6. Add richer weekly/monthly reports.
+1. Add custom categories and category aliases.
+2. Improve clarification flow for ambiguous AI transaction candidates.
+3. Add budget editing shortcuts if needed.
+4. Add richer weekly/monthly reports.
 
 Optional future improvements:
 

@@ -83,6 +83,7 @@ AI_MODEL=MiniMax-M2.7-highspeed
 AI_TEMPERATURE=0.2
 AI_MAX_TOKENS=2500
 AI_TIMEOUT_MS=25000
+PERF_LOGS=0
 ```
 
 Notes:
@@ -96,6 +97,8 @@ Notes:
 - To use SumoPod, set `AI_ENABLED=true` and put the real SumoPod key only in
   local `.env` or Vercel environment variables. Never commit or paste the key.
 - The fixed model target is `MiniMax-M2.7-highspeed`.
+- Set `PERF_LOGS=1` only when you need safe latency logs. Logs include command
+  kind and timing metrics, not message text or secrets.
 
 ## Local Development
 
@@ -298,7 +301,10 @@ gaji freelance masuk 1,5 juta
 
 AI may extract transaction candidates, but the app validates every candidate
 before saving. Ambiguous input asks the user to choose a safer flow instead of
-saving.
+saving. Natural extraction uses the quick AI path with compact JSON output.
+AI may suggest a category, but the app normalizes it to existing categories
+such as `food`, `education`, `transport`, or `housing`; unknown suggestions
+fall back to `other`.
 
 Reset flow:
 
@@ -392,14 +398,13 @@ Invoke-RestMethod `
 
 ## Next Development Direction
 
-The next recommended phase is **AI-first performance and flexible input
-upgrade**.
+The current phase is **AI-first performance and flexible input upgrade**.
 
 Goals:
 
 - Keep AI involvement high, but make responses feel faster.
 - Split AI behavior into quick extraction and deeper analysis paths.
-- Stop requiring `+` and `-` in normal transaction input.
+- Stop requiring `+` and `-` in normal input-mode transaction input.
 - Keep `+` and `-` as backward-compatible shortcuts.
 - Improve category detection with AI while keeping app-side validation.
 - Add custom category and alias support after AI category suggestions are
@@ -407,15 +412,12 @@ Goals:
 
 Recommended priority:
 
-1. Measure response speed for manual input, mode input, natural AI input,
-   `/insight`, `tanya`, and budget commands.
-2. Add AI latency instrumentation without logging secrets or private data.
-3. Introduce quick AI and deep AI profiles.
-4. Optimize prompts and payload sizes.
-5. Make unsigned input the primary documented flow.
-6. Add AI category suggestion with normalization to existing categories.
-7. Add custom categories and category aliases.
-8. Add learning from user category corrections.
+1. Keep monitoring response speed for manual input, mode input, natural AI
+   input, `/insight`, `tanya`, and budget commands.
+2. Use quick AI for extraction/category JSON and deep AI for explanation.
+3. Continue optimizing prompts and payload sizes.
+4. Add custom categories and category aliases.
+5. Add learning from user category corrections.
 
 ## License
 

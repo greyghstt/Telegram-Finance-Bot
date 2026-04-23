@@ -77,6 +77,8 @@ Configuration checks:
 - `AI_MODEL` should start as `MiniMax-M2.7-highspeed`.
 - `AI_MAX_TOKENS` should be `2500`.
 - `AI_TIMEOUT_MS` should be `25000`.
+- `PERF_LOGS=1` enables safe JSON performance logs. Leave it `0` unless you
+  are actively investigating latency.
 - Never print or paste `AI_API_KEY` in logs, screenshots, issues, or commits.
 
 If `/insight` returns only the manual fallback while AI should be active, check
@@ -96,13 +98,13 @@ bot feel faster. When investigating slow replies, separate these timings:
 
 - database query time
 - AI request time
-- formatting/reply time
 - total Telegram response time
 
 Healthy direction:
 
 - normal deterministic commands should stay fast
-- quick AI extraction should use compact prompts and small JSON output
+- quick AI extraction uses compact prompts, small JSON output, and smaller
+  code-level timeout/token caps
 - deep AI analysis may take longer but should still return within the configured
   timeout
 - repeated insight-style requests may be cached later if the data has not
@@ -112,8 +114,9 @@ Do not fix slow responses by simply removing AI from the product direction.
 Prefer prompt compaction, smaller AI payloads, profile-specific timeouts, and
 better fallback behavior.
 
-Future optimization may introduce separate quick/deep AI settings. Document new
-variables before deploying them.
+The current quick/deep split uses code-level caps and the same fixed
+`MiniMax-M2.7-highspeed` model. Do not add separate quick/deep env vars until
+the code needs them.
 
 ## Category Quality Checks
 
@@ -124,6 +127,8 @@ Check that:
 
 - AI category suggestions map to known categories when possible.
 - Unknown category suggestions do not create messy production data silently.
+- Current unknown suggestions become `other` unless the transaction is income,
+  where `income` remains the normalized category.
 - User corrections can later become aliases or category rules.
 - Reports display friendly category labels, not raw technical labels, whenever
   possible.
