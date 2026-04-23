@@ -14,11 +14,15 @@ export function openDatabase(filePath = process.env.DATABASE_PATH ?? DEFAULT_DB_
 }
 
 export function shouldInitializeDatabaseAtRuntime() {
+  if (process.env.DATABASE_URL) {
+    return true;
+  }
+
   if (process.env.RUNTIME_DB_INIT === "1") {
     return true;
   }
 
-  return !(process.env.VERCEL && process.env.DATABASE_URL);
+  return !process.env.VERCEL;
 }
 
 export function openSqliteDatabase(filePath = DEFAULT_DB_PATH) {
