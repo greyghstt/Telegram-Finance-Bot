@@ -60,6 +60,83 @@ describe("message handler", () => {
     assert.equal(income.summary.balance, 480000);
   });
 
+  it("supports wallet-oriented natural income phrases without AI", async () => {
+    const database = await createTestDatabase();
+    let extractCalls = 0;
+
+    const examples = [
+      ["topup gopay 100k", "gopay", 100000],
+      ["isi saldo 150k ke dana", "dana", 150000],
+      ["saldo awal cash 200k", "cash", 200000],
+      ["masuk ke bca 500k gaji", "bca", 500000],
+    ];
+
+    for (const [message, wallet, amount] of examples) {
+      const result = await handleMessage(database, message, {
+        extractTransactionCandidates: async () => {
+          extractCalls += 1;
+          return { ok: false };
+        },
+      });
+
+      assert.equal(result.ok, true);
+      assert.equal(result.saved.at(-1).type, "income");
+      assert.equal(result.saved.at(-1).wallet, wallet);
+      assert.equal(result.saved.at(-1).amount, amount);
+    }
+
+    assert.equal(extractCalls, 0);
+  });
+
+  it("supports broader wallet and transfer command variants", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "buat dompet cash", { chatId: 123 });
+    await handleMessage(database, "bikin dompet bca", { chatId: 123 });
+    await handleMessage(database, "masuk ke bca 500k gaji", { chatId: 123 });
+
+    const transferA = await handleMessage(database, "transfer dari bca ke cash 120k isi tunai", { chatId: 123 });
+    const transferB = await handleMessage(database, "pindah 30k dari cash ke bca balikin", { chatId: 123 });
+    const wallets = await handleMessage(database, "saldo dompet", { chatId: 123 });
+
+    assert.equal(transferA.command, "transfer_save");
+    assert.equal(transferB.command, "transfer_save");
+    assert.match(wallets.reply, /Cash: Rp\u00a090.000/);
+    assert.match(wallets.reply, /Bca: Rp\u00a0410.000/);
+  });
+
+  it("returns deterministic transfer guidance and skips AI for malformed transfer text", async () => {
+    const database = await createTestDatabase();
+    let extractCalls = 0;
+
+    const result = await handleMessage(database, "transfer dari bca ke cash", {
+      extractTransactionCandidates: async () => {
+        extractCalls += 1;
+        return { ok: true, candidates: [] };
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.reply, /Format transfer belum lengkap/i);
+    assert.equal(extractCalls, 0);
+  });
+
+  it("returns deterministic wallet guidance and skips AI for malformed wallet text", async () => {
+    const database = await createTestDatabase();
+    let extractCalls = 0;
+
+    const result = await handleMessage(database, "topup gopay", {
+      extractTransactionCandidates: async () => {
+        extractCalls += 1;
+        return { ok: true, candidates: [] };
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.reply, /Format dompet belum lengkap/i);
+    assert.equal(extractCalls, 0);
+  });
+
   it("auto-saves clear AI extracted natural transactions after validation", async () => {
     const database = await createTestDatabase();
 

@@ -372,6 +372,11 @@ Input modes:
 
 - `/pemasukan` lets the next message omit `+`.
 - `/pengeluaran` lets the next message omit `-`.
+- note-first messages such as `beli bensin 20k` should be accepted in those
+  modes.
+- wallet-oriented income phrases such as `topup gopay 100k` and
+  `masuk ke bca 500k gaji` should stay on the deterministic path instead of
+  going to AI first.
 
 Automation notes:
 
@@ -908,6 +913,8 @@ Rules:
 - Do not promote `+` and `-` as required in help text.
 - Prefer Telegram buttons and input modes for explicit type selection.
 - Use AI only when deterministic parsing cannot confidently decide.
+- Keep wallet creation, wallet summaries, wallet-oriented balance phrases, and
+  transfer syntax on deterministic routing before AI fallback.
 - If transaction type is ambiguous, ask the user to choose income or expense.
 
 ### AI Category Direction

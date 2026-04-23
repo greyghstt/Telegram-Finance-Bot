@@ -224,10 +224,16 @@ Check that:
 Check that:
 
 - `dompet tambah cash` and `dompet tambah bca` create per-chat wallet records.
+- `buat dompet cash`, `bikin dompet bca`, `dompet`, and `saldo dompet` should
+  resolve through the same deterministic wallet command path.
 - wallet-tagged transactions such as `-20k bensin dompet cash` affect wallet
   balance and still count in the normal expense summary.
-- `transfer bca cash 50k` changes wallet balances only and does not add new
+- `transfer bca cash 50k`, `transfer dari bca ke cash 50k`, and
+  `pindah 50k dari cash ke bca` change wallet balances only and do not add new
   income or expense.
+- `topup gopay 100k`, `isi saldo 150k ke dana`, `saldo awal cash 200k`, and
+  `masuk ke bca 500k gaji` should save as income transactions with wallet
+  metadata, not as transfers.
 - `transaksi rutin tambah bulanan -500k kos kategori housing` stores a rule but
   does not write a transaction until the processor runs.
 - `npm.cmd run process:recurring` should skip invalid templates and advance the
@@ -291,6 +297,8 @@ The current Telegram command menu includes:
 
 Text commands still cover some operational flows such as `transfer ...`,
 `transaksi rutin ...`, `hapus rutin ...`, and `tagihan tambah ...`.
+Malformed wallet or transfer text should return deterministic format guidance
+instead of going straight to AI extraction.
 
 ## Deploy and Rollback
 

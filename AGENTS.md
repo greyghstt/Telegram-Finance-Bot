@@ -207,6 +207,10 @@ Target direction:
 - Telegram income/expense buttons should be the preferred explicit type choice.
 - Leading `+` and `-` should not be required in normal usage.
 - Natural Indonesian input should be accepted for simple transactions.
+- Wallet-oriented income phrases such as `topup gopay 100k` or
+  `masuk ke bca 500k gaji` should stay on deterministic routing before AI.
+- Wallet and transfer commands should prefer rule-based parsing and clear format
+  hints over AI fallback when the message is incomplete.
 - AI may auto-save a simple transaction only after app-side validation.
 - Ambiguous transactions should ask the user to choose income, expense, or
   cancel.

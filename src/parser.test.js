@@ -114,6 +114,23 @@ describe("parseTransactionLine", () => {
     assert.equal(income.transaction.type, "income");
     assert.equal(income.transaction.amount, 500000);
   });
+
+  it("parses unsigned note-first transactions in input mode", () => {
+    const expense = parseTransactionLine("beli bensin 20k dompet cash", { defaultType: "expense" });
+    const income = parseTransactionLine("gaji freelance 1,5jt dompet bca", { defaultType: "income" });
+
+    assert.equal(expense.ok, true);
+    assert.equal(expense.transaction.type, "expense");
+    assert.equal(expense.transaction.amount, 20000);
+    assert.match(expense.transaction.note, /bensin/i);
+    assert.equal(expense.transaction.wallet, "cash");
+
+    assert.equal(income.ok, true);
+    assert.equal(income.transaction.type, "income");
+    assert.equal(income.transaction.amount, 1500000);
+    assert.match(income.transaction.note, /gaji freelance/i);
+    assert.equal(income.transaction.wallet, "bca");
+  });
 });
 
 describe("parseInput", () => {

@@ -305,8 +305,21 @@ commands.
 Input modes:
 
 - `/pemasukan`, then the next message can be `500k gaji`.
-- `/pengeluaran`, then the next message can be `20k bensin`.
+- `/pengeluaran`, then the next message can be `20k bensin` or `beli bensin 20k`.
 - `/batal` cancels the active input mode.
+
+Deterministic input routing now prefers manual handling before AI:
+
+- explicit commands and slash commands
+- manual transaction parsing, including amount-first and note-first variants
+- wallet and transfer intents such as `dompet tambah cash`, `saldo dompet`,
+  `transfer dari bca ke cash 50k`, and `pindah 50k dari cash ke bca`
+- wallet-oriented income phrases such as `topup gopay 100k`,
+  `isi saldo 150k ke dana`, `saldo awal cash 200k`, and
+  `masuk ke bca 500k gaji`
+
+If a wallet or transfer message is incomplete, the bot returns a deterministic
+format hint instead of sending the text to AI.
 
 Read-only AI insight:
 
@@ -380,9 +393,17 @@ Wallets, transfers, and scheduled records:
 
 ```text
 dompet tambah cash
+buat dompet bca
 dompet tambah bca
+saldo dompet
 dompet
 transfer bca cash 50k tarik tunai
+transfer dari bca ke cash 50k tarik tunai
+pindah 50k dari cash ke bca
+topup gopay 100k
+isi saldo 150k ke dana
+saldo awal cash 200k
+masuk ke bca 500k gaji
 -20k bensin dompet cash
 transaksi rutin tambah bulanan -500k kos kategori housing
 transaksi rutin
@@ -422,6 +443,9 @@ AI may extract transaction candidates, but the app validates every candidate
 before saving. Ambiguous input asks the user to reply `pemasukan`,
 `pengeluaran`, or `/batal`; nothing is saved before that clarification. Natural
 extraction uses the quick AI path with compact JSON output.
+Wallet creation, wallet balance phrases, transfers, and explicit input-mode
+messages are routed through deterministic parsing first so AI is not used for
+cases that can already be handled safely by rules.
 AI may suggest a category, but the app normalizes it to existing categories
 such as `food`, `education`, `transport`, or `housing`; unknown suggestions
 fall back to `other`.
