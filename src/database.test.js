@@ -13,17 +13,25 @@ import {
   getDeletedTransactionById,
   getSummary,
   initializeDatabase,
+  listBillReminders,
   listBudgets,
   listCategoryAliases,
   listCustomCategories,
+  listRecurringRules,
+  listTransfers,
   listTransactions,
+  getWalletBalances,
   saveCategoryAlias,
+  saveBillReminder,
   openDatabase,
+  saveRecurringRule,
   restoreTransactionById,
   saveBudget,
   saveCustomCategory,
+  saveTransfer,
   saveTransaction,
   saveTransactions,
+  saveWallet,
   searchTransactions,
   setChatSessionPendingAction,
   updateTransactionCategory,
@@ -258,6 +266,43 @@ describe("database", () => {
     assert.equal(alias.category, "kopi");
     assert.equal((await listCustomCategories(database, 123)).length, 1);
     assert.equal((await listCategoryAliases(database, 123)).length, 1);
+  });
+
+  it("stores wallets and tracks balances with transfers", async () => {
+    const database = await createTestDatabase();
+
+    await saveWallet(database, { chatId: 123, name: "cash" });
+    await saveWallet(database, { chatId: 123, name: "bca" });
+    await saveTransaction(database, parseInput("+500k gaji dompet bca").transaction);
+    await saveTransaction(database, parseInput("-50k makan dompet cash").transaction);
+    await saveTransfer(database, { chatId: 123, fromWallet: "bca", toWallet: "cash", amount: 100000, note: "isi cash" });
+
+    const wallets = await getWalletBalances(database, 123);
+
+    assert.equal((await listTransfers(database, 123)).length, 1);
+    assert.equal(wallets.find((item) => item.name === "bca").balance, 400000);
+    assert.equal(wallets.find((item) => item.name === "cash").balance, 50000);
+  });
+
+  it("stores recurring rules and bill reminders", async () => {
+    const database = await createTestDatabase();
+
+    await saveRecurringRule(database, {
+      chatId: 123,
+      cadence: "monthly",
+      templateMessage: "-500k kos kategori housing",
+      nextRunAt: "2026-05-01T00:00:00.000Z",
+    });
+    await saveBillReminder(database, {
+      chatId: 123,
+      title: "wifi",
+      amount: 250000,
+      category: "bills",
+      dueDay: 15,
+    });
+
+    assert.equal((await listRecurringRules(database, 123)).length, 1);
+    assert.equal((await listBillReminders(database, 123)).length, 1);
   });
 
   it("updates a transaction category", async () => {

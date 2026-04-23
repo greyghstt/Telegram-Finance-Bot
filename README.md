@@ -34,6 +34,8 @@ Main features:
 - Monthly budgets per Telegram chat.
 - CSV backup and CSV import tooling with dry-run support.
 - Global and multi-period budgets: weekly, monthly, and yearly.
+- Wallet tracking and wallet-to-wallet transfers.
+- Recurring transaction rules and bill reminder storage.
 - Export CSV as a Telegram document.
 - Reset all transactions with `YA RESET` confirmation.
 - Telegram webhook protected by `TELEGRAM_WEBHOOK_SECRET`.
@@ -214,6 +216,7 @@ The Telegram commands remain Indonesian for now:
 /insight
 /tanya bulan ini boros di mana?
 /budget
+/dompet
 /cari bensin
 /hapusterakhir
 /undo
@@ -244,6 +247,16 @@ budget minggu global 120k
 cek budget minggu
 budget tahun food 12jt
 saran budget
+dompet tambah cash
+dompet
+transfer bca cash 50k
+transaksi rutin tambah bulanan -500k kos kategori housing
+transaksi rutin
+hapus rutin 2
+tagihan tambah wifi 250k tiap 15 kategori bills
+tagihan
+tagihan hari ini
+hapus tagihan 3
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
 koreksi kategori 12 food
@@ -330,6 +343,28 @@ POST /import/csv
 ```
 
 `POST /import/csv` expects JSON with `csv` and optional `dryRun`.
+
+Wallets, transfers, and scheduled records:
+
+```text
+dompet tambah cash
+dompet tambah bca
+dompet
+transfer bca cash 50k tarik tunai
+-20k bensin dompet cash
+transaksi rutin tambah bulanan -500k kos kategori housing
+transaksi rutin
+hapus rutin 2
+tagihan tambah wifi 250k tiap 15 kategori bills
+tagihan
+tagihan hari ini
+hapus tagihan 3
+```
+
+Wallet balances combine wallet-tagged income and expense transactions with
+wallet-to-wallet transfers. Transfers are stored separately so they do not
+inflate income or expense summaries. Due bill reminder checks are scoped to the
+active Telegram chat.
 
 Natural input:
 

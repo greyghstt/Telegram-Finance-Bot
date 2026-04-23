@@ -145,6 +145,9 @@ Free-form user text
 35. Soft delete and undo for the latest deletion.
 36. CSV backup and CSV import with dry-run support.
 37. Global and multi-period budgets.
+38. Wallet tracking and wallet-to-wallet transfer records.
+39. Recurring transaction rules with explicit processor support.
+40. Bill reminder storage with per-chat due checks.
 
 ## Database
 
@@ -158,6 +161,10 @@ chat_sessions
 budgets
 custom_categories
 category_aliases
+wallets
+transfers
+recurring_rules
+bill_reminders
 ```
 
 `transactions` stores:
@@ -176,6 +183,7 @@ raw_amount
 original
 confidence
 deleted_at
+wallet
 created_at
 updated_at
 ```
@@ -226,6 +234,56 @@ created_at
 updated_at
 ```
 
+`wallets` stores:
+
+```text
+id
+chat_id
+name
+created_at
+updated_at
+```
+
+`transfers` stores:
+
+```text
+id
+chat_id
+from_wallet
+to_wallet
+amount
+note
+created_at
+updated_at
+```
+
+`recurring_rules` stores:
+
+```text
+id
+chat_id
+cadence
+template_message
+next_run_at
+active
+created_at
+updated_at
+```
+
+`bill_reminders` stores:
+
+```text
+id
+chat_id
+title
+amount
+category
+due_day
+active
+created_at
+updated_at
+```
+
 Migrations:
 
 ```text
@@ -235,6 +293,7 @@ supabase/migrations/20260422235000_add_budgets.sql
 supabase/migrations/20260423113000_add_custom_categories.sql
 supabase/migrations/20260423143000_add_transaction_soft_delete.sql
 supabase/migrations/20260423153000_expand_budget_periods.sql
+supabase/migrations/20260423170000_add_wallets_recurring_and_bills.sql
 ```
 
 The migration filenames keep their original names to preserve migration
@@ -256,6 +315,7 @@ Visible Telegram UX remains Indonesian:
 /insight
 /tanya bulan ini boros di mana?
 /budget
+/dompet
 /hapusterakhir
 /export
 /reset
@@ -281,6 +341,14 @@ koreksi kategori 12 food
 edit 12 -20k bensin
 budget minggu global 120k
 cek budget minggu
+dompet tambah cash
+dompet
+transfer bca cash 50k
+transaksi rutin tambah bulanan -500k kos kategori housing
+transaksi rutin
+hapus rutin 2
+tagihan tambah wifi 250k tiap 15 kategori bills
+tagihan hari ini
 cari bensin
 hapus terakhir
 undo

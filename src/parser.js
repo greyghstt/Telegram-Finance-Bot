@@ -335,6 +335,7 @@ export function parseTransactionLine(input, options = {}) {
       amount,
       note: note || defaultNote(type),
       category,
+      wallet: metadata.wallet,
       paymentMethod: metadata.paymentMethod,
       date: metadata.date,
       tags: metadata.tags,
@@ -380,6 +381,11 @@ function extractMetadata(note) {
     clean = explicitCategory.remaining;
   }
 
+  const explicitWallet = extractExplicitWallet(clean);
+  if (explicitWallet) {
+    clean = explicitWallet.remaining;
+  }
+
   const paymentMethod = detectPaymentMethod(clean);
   clean = removePaymentMethodWords(clean);
 
@@ -391,6 +397,7 @@ function extractMetadata(note) {
   return {
     note: clean,
     category: explicitCategory?.category,
+    wallet: explicitWallet?.wallet,
     paymentMethod,
     date,
     tags,
@@ -500,6 +507,18 @@ function detectTransactionType(sign) {
   }
 
   return "expense";
+}
+
+function extractExplicitWallet(note) {
+  const match = note.match(/\b(?:dompet|wallet|akun)\s*[:=]?\s*([a-zA-Z0-9_-]+)\b/i);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    wallet: normalizeCategory(match[1]),
+    remaining: normalizeWhitespace(note.replace(match[0], " ")),
+  };
 }
 
 function isValidDefaultType(type) {

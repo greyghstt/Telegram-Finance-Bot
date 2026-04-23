@@ -13,6 +13,8 @@
     "setup:webhook": "node scripts/setup-telegram-webhook.js",
     "backup:csv": "node scripts/backup-csv.js",
     "import:csv": "node scripts/import-csv.js",
+    "process:recurring": "node scripts/process-recurring.js",
+    "process:bills": "node scripts/process-bill-reminders.js",
     "check:production": "node scripts/check-production.js",
     "test": "node --test",
     "test:local-chat": "node scripts/local-chat-scenario.js"

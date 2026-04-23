@@ -33,6 +33,7 @@ Covered areas:
 - Ambiguous AI transaction clarification through Telegram session state.
 - CSV backup export and CSV import dry-run/apply flow.
 - Weekly/monthly/yearly budgets, including `global` budget.
+- Wallet balances, transfers, recurring transaction rules, and bill reminders.
 - Telegram service behavior, including database-backed income/expense input
   modes.
 - Chat ID access control.
@@ -71,6 +72,14 @@ cek budget
 budget minggu global 120k
 cek budget minggu
 saran budget
+dompet tambah cash
+dompet tambah bca
+transfer bca cash 50k tarik tunai
+dompet
+transaksi rutin tambah bulanan -500k kos kategori housing
+transaksi rutin
+tagihan tambah wifi 250k tiap 15 kategori bills
+tagihan hari ini
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
 koreksi kategori 3 kopi
@@ -238,6 +247,49 @@ Invoke-RestMethod `
   -ContentType "application/json" `
   -Body (@{csv=(Get-Content .\backups\sample.csv -Raw); dryRun=$true} | ConvertTo-Json)
 ```
+
+### Wallets, Transfers, And Scheduled Records
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"dompet tambah cash"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"transfer bca cash 50k tarik tunai"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"transaksi rutin tambah bulanan -500k kos kategori housing"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"tagihan tambah wifi 250k tiap 15 kategori bills"}'
+```
+
+Expected behavior:
+
+- wallet-tagged transactions such as `-20k bensin dompet cash` change wallet
+  balances and still count as normal expenses
+- transfers move value between wallets only and do not change balance summary
+- recurring rules are stored safely and need an explicit processor run
+- due bill checks such as `tagihan hari ini` only show reminders for the active
+  Telegram chat
 
 ### Natural Input
 

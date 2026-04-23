@@ -42,6 +42,8 @@ export const BOT_COMMANDS = [
   { command: "insight", description: "Insight keuangan read-only" },
   { command: "tanya", description: "Tanya AI soal data keuangan" },
   { command: "budget", description: "Cek atau atur budget" },
+  { command: "dompet", description: "Lihat ringkasan dompet" },
+  { command: "tagihan", description: "Lihat reminder tagihan" },
   { command: "cari", description: "Cari transaksi, contoh: /cari bensin" },
   { command: "hapusterakhir", description: "Hapus transaksi terakhir" },
   { command: "undo", description: "Batalkan hapus transaksi terakhir" },
