@@ -148,6 +148,9 @@ Free-form user text
 38. Wallet tracking and wallet-to-wallet transfer records.
 39. Recurring transaction rules with explicit processor support.
 40. Bill reminder storage with per-chat due checks.
+41. AI weekly report command and processor.
+42. AI monthly review command and processor.
+43. AI anomaly detection with app-calculated candidates.
 
 ## Database
 
@@ -314,6 +317,9 @@ Visible Telegram UX remains Indonesian:
 /kategori
 /insight
 /tanya bulan ini boros di mana?
+/laporanai
+/reviewai
+/anomali
 /budget
 /dompet
 /hapusterakhir
@@ -334,6 +340,9 @@ riwayat
 kategori
 insight
 tanya bulan ini boros di mana?
+laporan ai minggu ini
+review ai bulan ini
+cek anomali
 budget
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
@@ -361,6 +370,14 @@ Input modes:
 
 - `/pemasukan` lets the next message omit `+`.
 - `/pengeluaran` lets the next message omit `-`.
+
+Automation notes:
+
+- `scripts/process-weekly-report.js` runs the read-only weekly AI report flow.
+- `scripts/process-monthly-review.js` runs the read-only monthly AI review flow.
+- `scripts/process-anomalies.js` runs the anomaly summary flow.
+- All three flows compute the key numbers in app code first, then ask AI only
+  to explain the compact payload.
 - `/batal` clears pending input mode or reset confirmation.
 
 ## Security Checklist

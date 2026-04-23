@@ -34,6 +34,7 @@ Covered areas:
 - CSV backup export and CSV import dry-run/apply flow.
 - Weekly/monthly/yearly budgets, including `global` budget.
 - Wallet balances, transfers, recurring transaction rules, and bill reminders.
+- AI weekly report, monthly review, and anomaly fallback behavior.
 - Telegram service behavior, including database-backed income/expense input
   modes.
 - Chat ID access control.
@@ -80,6 +81,9 @@ transaksi rutin tambah bulanan -500k kos kategori housing
 transaksi rutin
 tagihan tambah wifi 250k tiap 15 kategori bills
 tagihan hari ini
+laporan ai minggu ini
+review ai bulan ini
+cek anomali
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
 koreksi kategori 3 kopi
@@ -317,6 +321,48 @@ and do not include message text, chat IDs, notes, or secrets.
 
 Quick AI paths return compact JSON. Deep AI paths may return richer plain-text
 explanations.
+
+### AI Report Commands
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"laporan ai minggu ini"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"review ai bulan ini"}'
+```
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:3000/messages" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message":"cek anomali"}'
+```
+
+Processor scripts:
+
+```powershell
+npm.cmd run report:weekly
+npm.cmd run report:monthly
+npm.cmd run report:anomalies
+```
+
+Expected behavior:
+
+- app-calculated summary lines appear first
+- AI only explains the provided summary, budgets, wallets, and anomaly
+  candidates
+- if AI is disabled or times out, the reply still returns a compact manual
+  summary instead of failing
 
 ### Category Tests
 

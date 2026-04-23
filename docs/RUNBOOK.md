@@ -59,7 +59,8 @@ If it returns `401`, check the local or Vercel `ADMIN_API_TOKEN`.
 ## Troubleshoot AI Insight
 
 AI features include `/insight`, `tanya ...`, `saran budget`, and natural
-transaction extraction. Existing non-AI commands should continue to work when
+transaction extraction. Weekly/monthly AI reports and anomaly checks use the
+same guardrail pattern. Existing non-AI commands should continue to work when
 AI is disabled, the key is missing, or SumoPod is unavailable.
 
 Local checks:
@@ -80,6 +81,9 @@ Configuration checks:
 - `PERF_LOGS=1` enables safe JSON performance logs. Leave it `0` unless you
   are actively investigating latency.
 - Never print or paste `AI_API_KEY` in logs, screenshots, issues, or commits.
+- `npm.cmd run report:weekly`, `npm.cmd run report:monthly`, and
+  `npm.cmd run report:anomalies` should produce read-only summaries even when
+  AI falls back.
 
 If `/insight` returns only the manual fallback while AI should be active, check
 for a missing key, provider timeout, exhausted provider balance, or invalid
@@ -201,6 +205,17 @@ Check that:
 - `tagihan hari ini` only shows due reminders for the current Telegram chat.
 - `npm.cmd run process:bills` lists due reminders without exposing notes,
   secrets, or unrelated chat context.
+
+## AI Report And Anomaly Checks
+
+Check that:
+
+- `laporan ai minggu ini` starts with app-calculated weekly summary lines.
+- `review ai bulan ini` includes budget and wallet context only when available.
+- `cek anomali` lists only app-calculated anomaly candidates, not AI guesses.
+- AI replies stay plain text and compact for Telegram.
+- manual fallback still returns useful output when AI is disabled, the key is
+  missing, or the provider times out.
 
 ## Vercel AI Environment
 

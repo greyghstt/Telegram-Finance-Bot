@@ -453,6 +453,59 @@ describe("message handler", () => {
     assert.match(result.reply, /Kategori utama/);
   });
 
+  it("returns manual weekly ai report fallback when AI is unavailable", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "+2jt gaji", { chatId: 123 });
+    await handleMessage(database, "-200k transport mingguan", { chatId: 123 });
+    await handleMessage(database, "budget minggu global 300k", { chatId: 123 });
+    await handleMessage(database, "dompet tambah cash", { chatId: 123 });
+
+    const result = await handleMessage(database, "laporan ai minggu ini", {
+      chatId: 123,
+      generateWeeklyFinanceReport: async () => ({ ok: false, fallback: true, reason: "ai_disabled" }),
+    });
+
+    assert.equal(result.command, "weekly_ai_report");
+    assert.match(result.reply, /Laporan mingguan AI/);
+    assert.match(result.reply, /AI belum aktif/);
+  });
+
+  it("returns manual monthly ai review fallback when AI is unavailable", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "+5jt gaji", { chatId: 123 });
+    await handleMessage(database, "-700k kos kategori housing", { chatId: 123 });
+    await handleMessage(database, "budget housing 1jt", { chatId: 123 });
+
+    const result = await handleMessage(database, "review ai bulan ini", {
+      chatId: 123,
+      generateMonthlyFinanceReview: async () => ({ ok: false, fallback: true, reason: "ai_disabled" }),
+    });
+
+    assert.equal(result.command, "monthly_ai_review");
+    assert.match(result.reply, /Review bulanan AI/);
+    assert.match(result.reply, /AI belum aktif/);
+  });
+
+  it("returns anomaly report from app-calculated candidates with AI fallback", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-20k parkir", { chatId: 123 });
+    await handleMessage(database, "-25k parkir", { chatId: 123 });
+    await handleMessage(database, "-200k parkir bandara", { chatId: 123 });
+
+    const result = await handleMessage(database, "cek anomali", {
+      chatId: 123,
+      detectFinanceAnomalies: async () => ({ ok: false, fallback: true, reason: "ai_disabled" }),
+    });
+
+    assert.equal(result.command, "anomaly_report");
+    assert.match(result.reply, /Cek anomali/);
+    assert.match(result.reply, /parkir bandara/);
+    assert.match(result.reply, /AI belum aktif/);
+  });
+
   it("sets and shows monthly budget progress", async () => {
     const database = await createTestDatabase();
 
