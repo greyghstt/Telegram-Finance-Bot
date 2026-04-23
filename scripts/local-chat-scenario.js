@@ -35,6 +35,9 @@ const messages = [
   "transaksi rutin",
   "tagihan tambah wifi 250k tiap 15 kategori bills",
   "tagihan hari ini",
+  "laporan ai minggu ini",
+  "review ai bulan ini",
+  "cek anomali",
   "kategori baru kopi Kopi",
   "alias kategori ngopi = kopi",
   "koreksi kategori 3 kopi",
@@ -92,6 +95,9 @@ function testOptions(message) {
     generateFinanceInsight: message === "insight" ? disabledAiResult : undefined,
     answerFinanceQuestion: message.startsWith("tanya ") ? disabledAiResult : undefined,
     generateBudgetSuggestion: message === "saran budget" ? disabledAiResult : undefined,
+    generateWeeklyFinanceReport: message === "laporan ai minggu ini" ? disabledAiResult : undefined,
+    generateMonthlyFinanceReview: message === "review ai bulan ini" ? disabledAiResult : undefined,
+    detectFinanceAnomalies: message === "cek anomali" ? disabledAiResult : undefined,
     disableAiExtraction: true,
   };
 }

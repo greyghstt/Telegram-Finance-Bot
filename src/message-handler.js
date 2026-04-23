@@ -39,9 +39,12 @@ import {
 import { exportTransactionsToCsv } from "./csv-backup.js";
 import {
   answerFinanceQuestion,
+  detectFinanceAnomalies,
   extractTransactionCandidates,
   generateBudgetSuggestion,
   generateFinanceInsight,
+  generateMonthlyFinanceReview,
+  generateWeeklyFinanceReport,
 } from "./ai-service.js";
 import { parseAmount, parseInput, parseTransactionLine } from "./parser.js";
 
@@ -214,6 +217,18 @@ async function handleVariableCommand(database, command, options) {
 
   if (command.command === "finance_question") {
     return buildFinanceQuestionResponse(database, command.question, options);
+  }
+
+  if (command.command === "weekly_ai_report") {
+    return buildWeeklyAiReportResponse(database, options);
+  }
+
+  if (command.command === "monthly_ai_review") {
+    return buildMonthlyAiReviewResponse(database, options);
+  }
+
+  if (command.command === "anomaly_report") {
+    return buildAnomalyReportResponse(database, options);
   }
 
   if (command.command === "budget_list") {
@@ -643,6 +658,64 @@ async function buildFinanceQuestionResponse(database, question, options) {
     reply: aiResult.ok
       ? buildAiQuestionReply(question, data, aiResult.content)
       : buildManualQuestionReply(question, data, aiResult.reason),
+  };
+}
+
+async function buildWeeklyAiReportResponse(database, options) {
+  const data = await buildPeriodicAiReportData(database, "week", options);
+  const reportGenerator = options.generateWeeklyFinanceReport ?? generateWeeklyFinanceReport;
+  const aiResult = await measureAi(options, () => reportGenerator(data));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "weekly_ai_report",
+    summary: data.summary,
+    categories: data.categories,
+    budgets: data.budgets,
+    wallets: data.wallets,
+    ai: aiResult,
+    reply: aiResult.ok
+      ? buildAiPeriodicReportReply("Laporan mingguan AI", data, aiResult.content)
+      : buildManualPeriodicReportReply("Laporan mingguan AI", data, aiResult.reason),
+  };
+}
+
+async function buildMonthlyAiReviewResponse(database, options) {
+  const data = await buildPeriodicAiReportData(database, "month", options);
+  const reviewGenerator = options.generateMonthlyFinanceReview ?? generateMonthlyFinanceReview;
+  const aiResult = await measureAi(options, () => reviewGenerator(data));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "monthly_ai_review",
+    summary: data.summary,
+    categories: data.categories,
+    budgets: data.budgets,
+    wallets: data.wallets,
+    ai: aiResult,
+    reply: aiResult.ok
+      ? buildAiPeriodicReportReply("Review bulanan AI", data, aiResult.content)
+      : buildManualPeriodicReportReply("Review bulanan AI", data, aiResult.reason),
+  };
+}
+
+async function buildAnomalyReportResponse(database, options) {
+  const data = await buildAnomalyData(database, options);
+  const detector = options.detectFinanceAnomalies ?? detectFinanceAnomalies;
+  const aiResult = await measureAi(options, () => detector(data));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "anomaly_report",
+    summary: data.summary,
+    anomalies: data.anomalies,
+    ai: aiResult,
+    reply: aiResult.ok
+      ? buildAiAnomalyReply(data, aiResult.content)
+      : buildManualAnomalyReply(data, aiResult.reason),
   };
 }
 
@@ -1098,6 +1171,45 @@ async function buildBudgetData(database, options) {
   };
 }
 
+async function buildPeriodicAiReportData(database, period, options) {
+  const range = getPeriodRange(period, options.now);
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const categories = await measureDb(options, "getCategorySummary", () =>
+    getCategorySummary(database, { ...range, limit: 6 }));
+  const recentTransactions = await measureDb(options, "listTransactions", () =>
+    listTransactions(database, { ...range, limit: 6 }));
+  const wallets = await measureDb(options, "getWalletBalances", () =>
+    getWalletBalances(database, getChatId(options)));
+  const budgets = await measureDb(options, "getBudgetProgress", () =>
+    getBudgetProgress(database, getChatId(options), {
+      ...range,
+      period: period === "week" ? "weekly" : "monthly",
+    }));
+
+  return {
+    periodLabel: periodLabel(period),
+    summary,
+    categories,
+    recentTransactions,
+    wallets: wallets.slice(0, 6),
+    budgets: budgets.slice(0, 6),
+  };
+}
+
+async function buildAnomalyData(database, options) {
+  const range = getPeriodRange("month", options.now);
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const recentTransactions = await measureDb(options, "listTransactions", () =>
+    listTransactions(database, { ...range, limit: 40 }));
+
+  return {
+    periodLabel: "30 hari terakhir",
+    summary,
+    recentTransactions: recentTransactions.slice(0, 8),
+    anomalies: detectAnomalyCandidates(recentTransactions),
+  };
+}
+
 function buildManualInsightReply(data, reason) {
   const lines = [
     ...buildInsightSummaryLines(data),
@@ -1228,6 +1340,104 @@ function buildQuestionSummaryLines(question, data) {
     }
   }
 
+  return lines;
+}
+
+function buildAiPeriodicReportReply(title, data, content) {
+  const report = cleanAiText(content);
+  const lines = buildPeriodicReportSummaryLines(title, data);
+
+  if (report) {
+    lines.push("");
+    lines.push("Ringkasan AI:");
+    lines.push(report);
+  }
+
+  return lines.join("\n");
+}
+
+function buildManualPeriodicReportReply(title, data, reason) {
+  return [
+    ...buildPeriodicReportSummaryLines(title, data),
+    "",
+    aiFallbackLabel(reason),
+  ].join("\n");
+}
+
+function buildPeriodicReportSummaryLines(title, data) {
+  const lines = [
+    title,
+    `Periode: ${capitalizeFirst(data.periodLabel)}`,
+    `Masuk: ${formatRupiah(data.summary.totalIncome)}`,
+    `Keluar: ${formatRupiah(data.summary.totalExpense)}`,
+    `Saldo: ${formatRupiah(data.summary.balance)}`,
+    `Transaksi: ${data.summary.transactionCount}`,
+  ];
+
+  if (data.categories.length > 0) {
+    lines.push("", "Kategori utama:");
+    for (const category of data.categories.slice(0, 3)) {
+      const amount = category.totalExpense || category.totalIncome;
+      lines.push(`- ${formatCategoryLabel(category.category)}: ${formatRupiah(amount)}`);
+    }
+  }
+
+  const attentionBudgets = data.budgets.filter((budget) => budget.percent >= 80);
+  if (attentionBudgets.length > 0) {
+    lines.push("", "Budget yang perlu dijaga:");
+    for (const budget of attentionBudgets.slice(0, 3)) {
+      lines.push(`- ${formatCategoryLabel(budget.category)}: ${budget.percent}%`);
+    }
+  }
+
+  if (data.wallets.length > 0) {
+    lines.push("", "Dompet:");
+    for (const wallet of data.wallets.slice(0, 3)) {
+      lines.push(`- ${capitalizeFirst(wallet.name)}: ${formatRupiah(wallet.balance)}`);
+    }
+  }
+
+  return lines;
+}
+
+function buildAiAnomalyReply(data, content) {
+  const text = cleanAiText(content);
+  const lines = buildAnomalySummaryLines(data);
+
+  if (text) {
+    lines.push("", "Analisis AI:", text);
+  }
+
+  return lines.join("\n");
+}
+
+function buildManualAnomalyReply(data, reason) {
+  return [
+    ...buildAnomalySummaryLines(data),
+    "",
+    aiFallbackLabel(reason),
+  ].join("\n");
+}
+
+function buildAnomalySummaryLines(data) {
+  const lines = [
+    "Cek anomali",
+    `Periode: ${data.periodLabel}`,
+    `Keluar: ${formatRupiah(data.summary.totalExpense)}`,
+    `Transaksi: ${data.summary.transactionCount}`,
+  ];
+
+  if (data.anomalies.length === 0) {
+    lines.push("", "Belum ada anomali pengeluaran yang menonjol.");
+    return lines;
+  }
+
+  lines.push("", "Kandidat anomali:");
+  for (const item of data.anomalies.slice(0, 3)) {
+    lines.push(
+      `- #${item.id} ${item.note}: ${formatRupiah(item.amount)} (${formatCategoryLabel(item.category)})`,
+    );
+  }
   return lines;
 }
 
@@ -1605,6 +1815,63 @@ function cleanAiText(value) {
     .trim();
 }
 
+function detectAnomalyCandidates(transactions) {
+  const expenses = Array.isArray(transactions)
+    ? transactions.filter((transaction) => transaction.type === "expense" && transaction.amount > 0)
+    : [];
+
+  if (expenses.length === 0) {
+    return [];
+  }
+
+  const totalExpense = expenses.reduce((total, transaction) => total + transaction.amount, 0);
+  const candidates = [];
+
+  for (const transaction of expenses) {
+    const sameCategory = expenses.filter((item) => item.category === transaction.category);
+    const categoryAverage = sameCategory.length > 0
+      ? Math.round(sameCategory.reduce((total, item) => total + item.amount, 0) / sameCategory.length)
+      : transaction.amount;
+    const ratio = categoryAverage > 0 ? transaction.amount / categoryAverage : 0;
+    const share = totalExpense > 0 ? transaction.amount / totalExpense : 0;
+
+    if (transaction.amount >= 100000 && ratio >= 2) {
+      candidates.push({
+        id: transaction.id,
+        note: transaction.note,
+        category: transaction.category,
+        amount: transaction.amount,
+        baseline: categoryAverage,
+        ratio: roundRatio(ratio),
+        reason: "category_spike",
+        createdAt: transaction.createdAt,
+      });
+      continue;
+    }
+
+    if (transaction.amount >= 150000 && share >= 0.4) {
+      candidates.push({
+        id: transaction.id,
+        note: transaction.note,
+        category: transaction.category,
+        amount: transaction.amount,
+        baseline: categoryAverage,
+        ratio: roundRatio(ratio),
+        reason: "expense_share_spike",
+        createdAt: transaction.createdAt,
+      });
+    }
+  }
+
+  return candidates
+    .sort((left, right) => right.amount - left.amount)
+    .slice(0, 5);
+}
+
+function roundRatio(value) {
+  return Math.round(Number(value) * 10) / 10;
+}
+
 function formatCategoryLabel(value, context = null) {
   const labels = {
     food: "Makanan",
@@ -1891,6 +2158,9 @@ function buildHelpResponse() {
       "kategori",
       "insight",
       "tanya bulan ini boros di mana?",
+      "laporan ai minggu ini",
+      "review ai bulan ini",
+      "cek anomali",
       "budget",
       "budget food 700k",
       "budget minggu global 120k",
@@ -2106,6 +2376,18 @@ function parseVariableCommand(message) {
 
   if (/^\/?saran\s+budget$/i.test(text)) {
     return { command: "budget_suggestion", period: "monthly" };
+  }
+
+  if (/^\/?(?:laporan ai minggu ini|laporan mingguan ai|weekly ai report|laporanai)$/i.test(text)) {
+    return { command: "weekly_ai_report" };
+  }
+
+  if (/^\/?(?:review ai bulan ini|review bulanan ai|monthly ai review|reviewai)$/i.test(text)) {
+    return { command: "monthly_ai_review" };
+  }
+
+  if (/^\/?(?:cek anomali|anomali|anomaly check)$/i.test(text)) {
+    return { command: "anomaly_report" };
   }
 
   const questionMatch = text.match(/^\/?(?:tanya|ask)\s+(.{3,240})$/i);

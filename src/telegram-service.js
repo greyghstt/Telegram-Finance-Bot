@@ -18,6 +18,7 @@ export const removeKeyboard = { remove_keyboard: true };
 export const mainKeyboard = {
   keyboard: [
     [{ text: "Insight AI" }, { text: "Tanya AI" }, { text: "Budget" }],
+    [{ text: "Laporan AI" }, { text: "Review AI" }, { text: "Anomali" }],
     [{ text: "Input Pemasukan" }, { text: "Input Pengeluaran" }],
     [{ text: "Saldo" }, { text: "Riwayat" }],
     [{ text: "Hari Ini" }, { text: "Kategori" }],
@@ -41,6 +42,9 @@ export const BOT_COMMANDS = [
   { command: "kategori", description: "Lihat ringkasan kategori" },
   { command: "insight", description: "Insight keuangan read-only" },
   { command: "tanya", description: "Tanya AI soal data keuangan" },
+  { command: "laporanai", description: "Laporan mingguan AI" },
+  { command: "reviewai", description: "Review bulanan AI" },
+  { command: "anomali", description: "Cek anomali transaksi" },
   { command: "budget", description: "Cek atau atur budget" },
   { command: "dompet", description: "Lihat ringkasan dompet" },
   { command: "tagihan", description: "Lihat reminder tagihan" },
@@ -64,6 +68,9 @@ const BUTTON_COMMANDS = new Map([
   ["kategori", "kategori"],
   ["insight ai", "insight"],
   ["tanya ai", "ask_prompt"],
+  ["laporan ai", "laporan ai minggu ini"],
+  ["review ai", "review ai bulan ini"],
+  ["anomali", "cek anomali"],
   ["budget", "budget"],
   ["bantuan", "help"],
   ["export csv", "export csv"],

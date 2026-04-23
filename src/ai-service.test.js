@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   answerFinanceQuestion,
+  detectFinanceAnomalies,
   extractTransactionCandidates,
   generateBudgetSuggestion,
   generateFinanceInsight,
+  generateMonthlyFinanceReview,
+  generateWeeklyFinanceReport,
   isAiEnabled,
 } from "./ai-service.js";
 
@@ -254,5 +257,95 @@ describe("ai service", () => {
 
     assert.equal(result.ok, false);
     assert.equal(result.reason, "invalid_json");
+  });
+
+  it("generates weekly finance report with summarized payload", async () => {
+    const calls = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (...args) => {
+            calls.push(args);
+            return {
+              choices: [{ message: { content: "Minggu ini pengeluaran transport paling menonjol." } }],
+            };
+          },
+        },
+      },
+    };
+
+    const result = await generateWeeklyFinanceReport(
+      {
+        periodLabel: "minggu ini",
+        summary: { totalIncome: 500000, totalExpense: 150000, balance: 350000, transactionCount: 6 },
+        categories: [{ category: "transport", totalExpense: 70000, transactionCount: 2 }],
+        budgets: [{ category: "global", monthlyLimit: 200000, spent: 150000, remaining: 50000, percent: 75, status: "ok" }],
+        wallets: [{ name: "cash", balance: 120000, income: 0, expense: 70000, transferIn: 0, transferOut: 0 }],
+      },
+      { client, env: { AI_ENABLED: "true", AI_API_KEY: "test-key" } },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.profile, "deep");
+    assert.match(calls[0][0].messages[0].content, /laporan mingguan/);
+    assert.match(calls[0][0].messages[1].content, /"wallets"/);
+  });
+
+  it("generates monthly finance review with budget context", async () => {
+    const calls = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (...args) => {
+            calls.push(args);
+            return {
+              choices: [{ message: { content: "Bulan ini budget food mendekati batas." } }],
+            };
+          },
+        },
+      },
+    };
+
+    const result = await generateMonthlyFinanceReview(
+      {
+        periodLabel: "bulan ini",
+        summary: { totalIncome: 3000000, totalExpense: 1200000, balance: 1800000, transactionCount: 24 },
+        budgets: [{ category: "food", monthlyLimit: 500000, spent: 420000, remaining: 80000, percent: 84, status: "warning" }],
+      },
+      { client, env: { AI_ENABLED: "true", AI_API_KEY: "test-key" } },
+    );
+
+    assert.equal(result.ok, true);
+    assert.match(calls[0][0].messages[0].content, /review bulanan/);
+    assert.match(calls[0][0].messages[1].content, /"percent":84/);
+  });
+
+  it("detects finance anomalies from app-calculated candidates", async () => {
+    const calls = [];
+    const client = {
+      chat: {
+        completions: {
+          create: async (...args) => {
+            calls.push(args);
+            return {
+              choices: [{ message: { content: "Parkir ini jauh di atas pola biasanya." } }],
+            };
+          },
+        },
+      },
+    };
+
+    const result = await detectFinanceAnomalies(
+      {
+        periodLabel: "30 hari terakhir",
+        summary: { totalIncome: 0, totalExpense: 300000, balance: -300000, transactionCount: 8 },
+        anomalies: [{ id: 8, note: "parkir bandara", category: "transport", amount: 120000, baseline: 30000, ratio: 4, reason: "category_spike" }],
+      },
+      { client, env: { AI_ENABLED: "true", AI_API_KEY: "test-key" } },
+    );
+
+    assert.equal(result.ok, true);
+    assert.match(calls[0][0].messages[0].content, /deteksi anomali/);
+    assert.match(calls[0][0].messages[1].content, /"baseline":30000/);
   });
 });

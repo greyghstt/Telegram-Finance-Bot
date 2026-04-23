@@ -36,6 +36,7 @@ Main features:
 - Global and multi-period budgets: weekly, monthly, and yearly.
 - Wallet tracking and wallet-to-wallet transfers.
 - Recurring transaction rules and bill reminder storage.
+- AI weekly report, monthly review, and anomaly checks with manual fallback.
 - Export CSV as a Telegram document.
 - Reset all transactions with `YA RESET` confirmation.
 - Telegram webhook protected by `TELEGRAM_WEBHOOK_SECRET`.
@@ -215,6 +216,9 @@ The Telegram commands remain Indonesian for now:
 /kategori
 /insight
 /tanya bulan ini boros di mana?
+/laporanai
+/reviewai
+/anomali
 /budget
 /dompet
 /cari bensin
@@ -240,6 +244,9 @@ riwayat
 kategori
 insight
 tanya bulan ini boros di mana?
+laporan ai minggu ini
+review ai bulan ini
+cek anomali
 budget
 cek budget
 budget food 700k
@@ -365,6 +372,18 @@ Wallet balances combine wallet-tagged income and expense transactions with
 wallet-to-wallet transfers. Transfers are stored separately so they do not
 inflate income or expense summaries. Due bill reminder checks are scoped to the
 active Telegram chat.
+
+AI report automation:
+
+```powershell
+npm.cmd run report:weekly
+npm.cmd run report:monthly
+npm.cmd run report:anomalies
+```
+
+These scripts generate the same read-only AI summaries used by Telegram. They
+use app-calculated summaries first, then ask AI to explain those numbers. If AI
+is disabled or unavailable, the scripts still return a manual fallback summary.
 
 Natural input:
 

@@ -42,6 +42,33 @@ export async function generateBudgetSuggestion(data, options = {}) {
   });
 }
 
+export async function generateWeeklyFinanceReport(data, options = {}) {
+  return createChatCompletion({
+    data,
+    options,
+    profile: PROFILE_DEEP,
+    messageBuilder: buildWeeklyReportMessages,
+  });
+}
+
+export async function generateMonthlyFinanceReview(data, options = {}) {
+  return createChatCompletion({
+    data,
+    options,
+    profile: PROFILE_DEEP,
+    messageBuilder: buildMonthlyReviewMessages,
+  });
+}
+
+export async function detectFinanceAnomalies(data, options = {}) {
+  return createChatCompletion({
+    data,
+    options,
+    profile: PROFILE_DEEP,
+    messageBuilder: buildAnomalyDetectionMessages,
+  });
+}
+
 export async function extractTransactionCandidates(text, context = {}, options = {}) {
   const result = await createChatCompletion({
     data: { text, context },
@@ -222,6 +249,69 @@ function buildBudgetSuggestionMessages(data) {
   ];
 }
 
+function buildWeeklyReportMessages(data) {
+  return [
+    {
+      role: "system",
+      content: [
+        "Kamu adalah asisten laporan mingguan keuangan pribadi.",
+        "Jawab dalam Bahasa Indonesia yang singkat untuk Telegram.",
+        "Tulis teks polos tanpa Markdown, tanpa **bold**, tanpa tabel, dan tanpa emoji.",
+        "Jawab 3-5 kalimat pendek.",
+        "Gunakan hanya ringkasan, kategori, budget, dompet, dan transaksi yang diberikan.",
+        "Jangan mengarang nominal, tanggal, kategori, budget, atau transaksi.",
+        "Sorot pola penting minggu ini dan 1-2 tindak lanjut praktis.",
+      ].join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify(toSafePeriodicReportPayload(data)),
+    },
+  ];
+}
+
+function buildMonthlyReviewMessages(data) {
+  return [
+    {
+      role: "system",
+      content: [
+        "Kamu adalah asisten review bulanan keuangan pribadi.",
+        "Jawab dalam Bahasa Indonesia yang singkat untuk Telegram.",
+        "Tulis teks polos tanpa Markdown, tanpa **bold**, tanpa tabel, dan tanpa emoji.",
+        "Jawab 4-6 kalimat pendek.",
+        "Gunakan hanya ringkasan, kategori, budget, dompet, dan transaksi yang diberikan.",
+        "Jangan mengarang nominal, tanggal, kategori, budget, atau transaksi.",
+        "Fokus pada ringkasan bulan, sumber pengeluaran utama, disiplin budget, dan tindak lanjut sederhana.",
+      ].join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify(toSafePeriodicReportPayload(data)),
+    },
+  ];
+}
+
+function buildAnomalyDetectionMessages(data) {
+  return [
+    {
+      role: "system",
+      content: [
+        "Kamu adalah asisten deteksi anomali keuangan pribadi.",
+        "Jawab dalam Bahasa Indonesia yang singkat untuk Telegram.",
+        "Tulis teks polos tanpa Markdown, tanpa **bold**, tanpa tabel, dan tanpa emoji.",
+        "Gunakan hanya kandidat anomali yang sudah dihitung aplikasi.",
+        "Jangan mengarang nominal, tanggal, kategori, baseline, atau transaksi.",
+        "Jika tidak ada sinyal kuat, katakan tidak ada anomali yang menonjol.",
+        "Jelaskan kenapa kandidat terlihat menonjol dan sebutkan tindak lanjut praktis.",
+      ].join(" "),
+    },
+    {
+      role: "user",
+      content: JSON.stringify(toSafeAnomalyPayload(data)),
+    },
+  ];
+}
+
 function buildTransactionExtractionMessages(data) {
   return [
     {
@@ -337,6 +427,65 @@ function toSafeBudgetPayload(data) {
           status: String(budget.status ?? "ok"),
         }))
       : [],
+  };
+}
+
+function toSafePeriodicReportPayload(data) {
+  return {
+    periodLabel: String(data?.periodLabel ?? "periode ini"),
+    summary: {
+      balance: toInteger(data?.summary?.balance),
+      totalIncome: toInteger(data?.summary?.totalIncome),
+      totalExpense: toInteger(data?.summary?.totalExpense),
+      transactionCount: toInteger(data?.summary?.transactionCount),
+    },
+    categories: safeCategories(data?.categories, 8),
+    recentTransactions: safeTransactions(data?.recentTransactions, 6),
+    budgets: Array.isArray(data?.budgets)
+      ? data.budgets.slice(0, 8).map((budget) => ({
+          category: String(budget.category ?? "other"),
+          monthlyLimit: toInteger(budget.monthlyLimit),
+          spent: toInteger(budget.spent),
+          remaining: toInteger(budget.remaining),
+          percent: toInteger(budget.percent),
+          status: String(budget.status ?? "ok"),
+        }))
+      : [],
+    wallets: Array.isArray(data?.wallets)
+      ? data.wallets.slice(0, 6).map((wallet) => ({
+          name: String(wallet.name ?? "wallet"),
+          balance: toInteger(wallet.balance),
+          income: toInteger(wallet.income),
+          expense: toInteger(wallet.expense),
+          transferIn: toInteger(wallet.transferIn),
+          transferOut: toInteger(wallet.transferOut),
+        }))
+      : [],
+  };
+}
+
+function toSafeAnomalyPayload(data) {
+  return {
+    periodLabel: String(data?.periodLabel ?? "periode ini"),
+    summary: {
+      balance: toInteger(data?.summary?.balance),
+      totalIncome: toInteger(data?.summary?.totalIncome),
+      totalExpense: toInteger(data?.summary?.totalExpense),
+      transactionCount: toInteger(data?.summary?.transactionCount),
+    },
+    anomalies: Array.isArray(data?.anomalies)
+      ? data.anomalies.slice(0, 5).map((item) => ({
+          id: toInteger(item.id),
+          note: String(item.note ?? ""),
+          category: String(item.category ?? "other"),
+          amount: toInteger(item.amount),
+          baseline: toInteger(item.baseline),
+          ratio: Number.isFinite(Number(item.ratio)) ? Number(item.ratio) : 0,
+          reason: String(item.reason ?? ""),
+          createdAt: item.createdAt ? String(item.createdAt) : null,
+        }))
+      : [],
+    recentTransactions: safeTransactions(data?.recentTransactions, 6),
   };
 }
 
