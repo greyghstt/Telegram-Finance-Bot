@@ -6,11 +6,16 @@ import {
   getBudgetProgress,
   getCategorySummary,
   getSummary,
+  listCategoryAliases,
   listBudgets,
+  listCustomCategories,
   listTransactions,
+  saveCategoryAlias,
   saveBudget,
+  saveCustomCategory,
   saveTransactions,
   searchTransactions,
+  updateTransactionCategory,
 } from "./database.js";
 import {
   answerFinanceQuestion,
@@ -199,6 +204,18 @@ async function handleVariableCommand(database, command, options) {
 
   if (command.command === "budget_suggestion") {
     return buildBudgetSuggestionResponse(database, options);
+  }
+
+  if (command.command === "custom_category_save") {
+    return buildCustomCategorySaveResponse(database, command, options);
+  }
+
+  if (command.command === "category_alias_save") {
+    return buildCategoryAliasSaveResponse(database, command, options);
+  }
+
+  if (command.command === "category_correction") {
+    return buildCategoryCorrectionResponse(database, command, options);
   }
 
   return {
@@ -441,6 +458,7 @@ async function buildHistoryResponse(database, options) {
 async function buildCategoryReportResponse(database, options) {
   const categories = await measureDb(options, "getCategorySummary", () =>
     getCategorySummary(database, { limit: 10 }));
+  const context = await buildCategoryContext(database, options);
   const lines = ["Laporan kategori"];
 
   if (categories.length === 0) {
@@ -450,7 +468,7 @@ async function buildCategoryReportResponse(database, options) {
     for (const category of categories) {
       const amount = category.totalExpense || category.totalIncome;
       lines.push(
-        `- ${formatCategoryLabel(category.category)}: ${formatRupiah(amount)} (${category.transactionCount} transaksi)`,
+        `- ${formatCategoryLabel(category.category, context)}: ${formatRupiah(amount)} (${category.transactionCount} transaksi)`,
       );
     }
   }
@@ -478,7 +496,7 @@ async function tryHandleNaturalTransaction(database, message, parsed, options) {
     return null;
   }
 
-  const validation = validateAiTransactionCandidates(result.candidates, message);
+  const validation = await validateAiTransactionCandidates(database, result.candidates, message, options);
   if (!validation.ok) {
     return {
       ok: false,
@@ -656,6 +674,117 @@ async function buildBudgetSuggestionResponse(database, options) {
     reply: aiResult.ok
       ? buildAiBudgetSuggestionReply(data, aiResult.content)
       : buildManualBudgetSuggestionReply(data, aiResult.reason),
+  };
+}
+
+async function buildCustomCategorySaveResponse(database, command, options) {
+  const category = normalizeCategorySlug(command.category);
+  const label = normalizeCategoryLabel(command.label || command.category);
+
+  if (!category || !label) {
+    return {
+      ok: false,
+      kind: "error",
+      command: "custom_category_save",
+      reply: "Kategori belum valid. Contoh: kategori baru kopi Kopi",
+    };
+  }
+
+  const saved = await measureDb(options, "saveCustomCategory", () =>
+    saveCustomCategory(database, { chatId: getChatId(options), category, label }));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "custom_category_save",
+    category: saved,
+    reply: [
+      "Kategori disimpan.",
+      "",
+      `${saved.category}: ${saved.label}`,
+      "",
+      `Pakai: kategori ${saved.category}`,
+    ].join("\n"),
+  };
+}
+
+async function buildCategoryAliasSaveResponse(database, command, options) {
+  const context = await buildCategoryContext(database, options);
+  const category = resolveCategory(command.category, context, { allowCustomCreate: true });
+  const alias = normalizeAliasText(command.alias);
+
+  if (!alias || !category) {
+    return {
+      ok: false,
+      kind: "error",
+      command: "category_alias_save",
+      reply: "Alias belum valid. Contoh: alias kategori ayam geprek = food",
+    };
+  }
+
+  await ensureCustomCategory(database, category, command.category, options, context);
+  const saved = await measureDb(options, "saveCategoryAlias", () =>
+    saveCategoryAlias(database, { chatId: getChatId(options), alias, category }));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "category_alias_save",
+    alias: saved,
+    reply: [
+      "Alias kategori disimpan.",
+      "",
+      `${saved.alias} -> ${formatCategoryLabel(saved.category, context)}`,
+    ].join("\n"),
+  };
+}
+
+async function buildCategoryCorrectionResponse(database, command, options) {
+  const context = await buildCategoryContext(database, options);
+  const category = resolveCategory(command.category, context, { allowCustomCreate: true });
+
+  if (!category) {
+    return {
+      ok: false,
+      kind: "error",
+      command: "category_correction",
+      reply: "Kategori koreksi belum valid. Contoh: koreksi kategori 12 food",
+    };
+  }
+
+  await ensureCustomCategory(database, category, command.category, options, context);
+  const updated = await measureDb(options, "updateTransactionCategory", () =>
+    updateTransactionCategory(database, command.id, category));
+
+  if (!updated) {
+    return {
+      ok: false,
+      kind: "error",
+      command: "category_correction",
+      reply: `Transaksi #${command.id} tidak ditemukan.`,
+    };
+  }
+
+  const aliasSource = buildAliasFromNote(updated.note);
+  if (aliasSource) {
+    await measureDb(options, "saveCategoryAlias", () =>
+      saveCategoryAlias(database, {
+        chatId: getChatId(options),
+        alias: aliasSource,
+        category,
+      }));
+  }
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "category_correction",
+    transaction: updated,
+    reply: [
+      `Kategori transaksi #${updated.id} diperbarui.`,
+      "",
+      formatTransaction(updated, { includeTimestamp: true, categoryContext: context }),
+    ].join("\n"),
   };
 }
 
@@ -954,7 +1083,7 @@ function shouldTryNaturalTransaction(parsed, message, options) {
     || parsed.error.includes("Format pesan belum dikenali");
 }
 
-function validateAiTransactionCandidates(candidates, original) {
+async function validateAiTransactionCandidates(database, candidates, original, options) {
   if (!Array.isArray(candidates) || candidates.length === 0) {
     return {
       ok: false,
@@ -975,13 +1104,14 @@ function validateAiTransactionCandidates(candidates, original) {
 
   const transactions = [];
   const ambiguous = [];
+  const context = await buildCategoryContext(database, options);
 
   for (const candidate of candidates) {
     const type = candidate?.type;
     const confidence = Number(candidate?.confidence ?? 0);
     const amount = Number(candidate?.amount);
     const note = String(candidate?.note ?? "").trim();
-    const category = normalizeAiCategory(candidate?.category, type);
+    const category = normalizeAiCategory(candidate?.category, type, context);
 
     if (!Number.isSafeInteger(amount) || amount <= 0 || !note || confidence < 0.75) {
       return {
@@ -1029,7 +1159,12 @@ function buildTransactionClarificationReply(candidates) {
   const lines = [
     "Transaksi masih ambigu.",
     "",
-    "Pilih /pemasukan atau /pengeluaran, lalu kirim ulang item ini:",
+    "Balas salah satu:",
+    "pemasukan",
+    "pengeluaran",
+    "/batal",
+    "",
+    "Item yang menunggu:",
   ];
 
   candidates.slice(0, 3).forEach((candidate, index) => {
@@ -1042,18 +1177,101 @@ function buildTransactionClarificationReply(candidates) {
   return lines.join("\n");
 }
 
-function normalizeAiCategory(value, type) {
-  const category = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
-  if (KNOWN_CATEGORIES.has(category)) {
-    return category;
+function normalizeAiCategory(value, type, context = null) {
+  const resolved = resolveCategory(value, context);
+  if (resolved) {
+    return resolved;
   }
-
-  const aliased = CATEGORY_ALIASES.get(category);
-  if (aliased) {
-    return aliased;
-  }
-
   return type === "income" ? "income" : "other";
+}
+
+async function buildCategoryContext(database, options) {
+  const chatId = getChatId(options);
+  const [customCategories, categoryAliases] = await Promise.all([
+    measureDb(options, "listCustomCategories", () => listCustomCategories(database, chatId)),
+    measureDb(options, "listCategoryAliases", () => listCategoryAliases(database, chatId)),
+  ]);
+  const customLabels = new Map(customCategories.map((item) => [item.category, item.label]));
+  const aliasMap = new Map(categoryAliases.map((item) => [item.alias, item.category]));
+
+  return {
+    customCategories,
+    categoryAliases,
+    customLabels,
+    aliasMap,
+  };
+}
+
+function resolveCategory(value, context = null, { allowCustomCreate = false } = {}) {
+  const slug = normalizeCategorySlug(value);
+  const alias = normalizeAliasText(value);
+
+  if (KNOWN_CATEGORIES.has(slug)) {
+    return slug;
+  }
+
+  if (context?.customLabels?.has(slug)) {
+    return slug;
+  }
+
+  if (context?.aliasMap?.has(alias)) {
+    return context.aliasMap.get(alias);
+  }
+
+  const builtInAlias = CATEGORY_ALIASES.get(slug) ?? CATEGORY_ALIASES.get(alias);
+  if (builtInAlias) {
+    return builtInAlias;
+  }
+
+  return allowCustomCreate && slug ? slug : null;
+}
+
+async function ensureCustomCategory(database, category, labelSource, options, context = null) {
+  if (KNOWN_CATEGORIES.has(category) || context?.customLabels?.has(category)) {
+    return null;
+  }
+
+  const label = normalizeCategoryLabel(labelSource || category);
+  if (!label) {
+    return null;
+  }
+
+  return measureDb(options, "saveCustomCategory", () =>
+    saveCustomCategory(database, {
+      chatId: getChatId(options),
+      category,
+      label,
+    }));
+}
+
+function normalizeCategorySlug(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "")
+    .slice(0, 32);
+}
+
+function normalizeCategoryLabel(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
+}
+
+function normalizeAliasText(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_\-\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
+function buildAliasFromNote(note) {
+  const alias = normalizeAliasText(note);
+  return alias.length >= 2 ? alias : "";
 }
 
 function cleanAiText(value) {
@@ -1067,7 +1285,7 @@ function cleanAiText(value) {
     .trim();
 }
 
-function formatCategoryLabel(value) {
+function formatCategoryLabel(value, context = null) {
   const labels = {
     food: "Makanan",
     transport: "Transport",
@@ -1084,6 +1302,10 @@ function formatCategoryLabel(value) {
     income: "Pemasukan",
     other: "Lainnya",
   };
+
+  if (context?.customLabels?.has(value)) {
+    return context.customLabels.get(value);
+  }
 
   return labels[value] ?? capitalizeFirst(value);
 }
@@ -1270,6 +1492,9 @@ function buildHelpResponse() {
       "budget",
       "budget food 700k",
       "saran budget",
+      "kategori baru kopi Kopi",
+      "alias kategori ngopi = kopi",
+      "koreksi kategori 12 food",
       "cari bensin",
       "hapus terakhir",
       "hapus 12",
@@ -1281,6 +1506,34 @@ function buildHelpResponse() {
 
 function parseVariableCommand(message) {
   const text = String(message ?? "").trim();
+
+  const categoryMatch = text.match(/^\/?(?:kategori baru|tambah kategori)\s+([a-zA-Z0-9_-]{2,32})(?:\s+(.{1,40}))?$/i);
+  if (categoryMatch) {
+    return {
+      command: "custom_category_save",
+      category: categoryMatch[1].trim(),
+      label: categoryMatch[2]?.trim() ?? categoryMatch[1].trim(),
+    };
+  }
+
+  const aliasMatch = text.match(/^\/?alias kategori\s+(.{2,80}?)\s*(?:=|ke|jadi)\s*([a-zA-Z0-9_-]{2,32})$/i);
+  if (aliasMatch) {
+    return {
+      command: "category_alias_save",
+      alias: aliasMatch[1].trim(),
+      category: aliasMatch[2].trim(),
+    };
+  }
+
+  const correctionMatch = text.match(/^\/?(?:koreksi|ubah|ganti)\s+kategori\s+#?(\d+)\s+([a-zA-Z0-9_-]{2,32})$/i);
+  if (correctionMatch) {
+    return {
+      command: "category_correction",
+      id: Number(correctionMatch[1]),
+      category: correctionMatch[2].trim(),
+    };
+  }
+
   const budgetSetMatch = text.match(/^\/?budget\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i);
   if (budgetSetMatch) {
     return {
@@ -1458,9 +1711,9 @@ function getChatId(options) {
   return String(options.chatId ?? "default");
 }
 
-function formatTransaction(transaction, { includeTimestamp = false } = {}) {
+function formatTransaction(transaction, { includeTimestamp = false, categoryContext = null } = {}) {
   const sign = transaction.type === "income" ? "+" : "-";
-  const category = transaction.category ? ` [${formatCategoryLabel(transaction.category)}]` : "";
+  const category = transaction.category ? ` [${formatCategoryLabel(transaction.category, categoryContext)}]` : "";
   const timestamp = includeTimestamp ? ` - ${formatTransactionTimestamp(transaction.createdAt)}` : "";
   return `${sign}${formatRupiah(transaction.amount)} ${transaction.note}${category}${timestamp}`;
 }

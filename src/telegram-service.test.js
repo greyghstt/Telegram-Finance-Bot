@@ -5,6 +5,7 @@ import {
   initializeDatabase,
   listTransactions,
   openDatabase,
+  setChatSessionPendingAction,
 } from "./database.js";
 import {
   BOT_COMMANDS,
@@ -191,5 +192,42 @@ describe("telegram service", () => {
     assert.equal((await listTransactions(database)).length, 0);
     assert.equal((await getChatSession(database, 123456789)).pendingAction, null);
     assert.match(readJsonBody(replies.at(-1)).text, /berhasil direset/i);
+  });
+
+  it("saves pending ambiguous AI transactions after type clarification", async () => {
+    const database = await createTestDatabase();
+    const replies = [];
+    mockTelegramFetch(replies);
+    const allowedChatIds = new Set(["123456789"]);
+
+    await setChatSessionPendingAction(database, 123456789, "transaction_clarify", {
+      candidates: [
+        {
+          amount: 50000,
+          note: "refund teman",
+          category: "other",
+          confidence: 0.9,
+          original: "refund teman 50 ribu",
+        },
+      ],
+    });
+
+    const result = await processTelegramUpdate({
+      database,
+      update: textUpdate("pengeluaran"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    const transactions = await listTransactions(database);
+    const session = await getChatSession(database, 123456789);
+
+    assert.equal(result.kind, "transaction_clarification");
+    assert.equal(result.result.ok, true);
+    assert.equal(transactions.length, 1);
+    assert.equal(transactions[0].type, "expense");
+    assert.equal(transactions[0].amount, 50000);
+    assert.equal(session.pendingAction, null);
+    assert.match(readJsonBody(replies.at(-1)).text, /Klarifikasi dipakai: pengeluaran/);
   });
 });

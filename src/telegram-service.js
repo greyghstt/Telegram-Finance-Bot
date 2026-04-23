@@ -7,9 +7,11 @@ import {
   getChatSession,
   getSummary,
   listTransactions,
+  saveTransactions,
   setChatSessionMode,
   setChatSessionPendingAction,
 } from "./database.js";
+import { parseTransactionLine } from "./parser.js";
 
 export const removeKeyboard = { remove_keyboard: true };
 
@@ -24,7 +26,7 @@ export const mainKeyboard = {
   resize_keyboard: true,
   one_time_keyboard: true,
   is_persistent: false,
-  input_field_placeholder: "Ketik +500k gaji atau -20k bensin",
+  input_field_placeholder: "Ketik 500k gaji atau 20k bensin",
 };
 
 export const BOT_COMMANDS = [
@@ -141,18 +143,8 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
   }
 
   if (activeSession?.pendingAction === "transaction_clarify") {
-    await clearChatSessionPendingAction(database, chatId);
-    await sendTelegramMessage(
-      token,
-      chatId,
-      [
-        "Klarifikasi transaksi dibatalkan.",
-        "",
-        "Pilih /pemasukan atau /pengeluaran, lalu kirim ulang transaksi tanpa tanda.",
-      ].join("\n"),
-      { replyMarkup: mainKeyboard },
-    );
-    return { handled: true, kind: "transaction_clarification_cancelled" };
+    const result = await handlePendingTransactionClarification(database, token, chatId, text, activeSession);
+    return { handled: true, kind: "transaction_clarification", result };
   }
 
   if (normalizedText === "input_income" || normalizedText === "input_expense") {
@@ -170,7 +162,9 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
   });
 
   if (result.kind === "clarification") {
-    await setChatSessionPendingAction(database, chatId, "transaction_clarify");
+    await setChatSessionPendingAction(database, chatId, "transaction_clarify", {
+      candidates: result.pendingClarification,
+    });
   }
 
   if (result.command === "export" && result.csv) {
@@ -413,6 +407,107 @@ async function handlePendingBudgetResetAction(database, token, chatId, text) {
     ok: true,
     deletedCount: result.deletedCount,
   };
+}
+
+async function handlePendingTransactionClarification(database, token, chatId, text, session) {
+  const type = parseClarifiedTransactionType(text);
+  const candidates = Array.isArray(session?.pendingPayload?.candidates)
+    ? session.pendingPayload.candidates
+    : [];
+
+  if (!type) {
+    await sendTelegramMessage(
+      token,
+      chatId,
+      [
+        "Pilih tipe transaksi dulu:",
+        "pemasukan",
+        "pengeluaran",
+        "",
+        "Ketik /batal untuk membatalkan.",
+      ].join("\n"),
+      { replyMarkup: mainKeyboard },
+    );
+
+    return { ok: false, kind: "transaction_clarification_pending" };
+  }
+
+  if (candidates.length === 0) {
+    await clearChatSessionPendingAction(database, chatId);
+    await sendTelegramMessage(
+      token,
+      chatId,
+      "Klarifikasi sudah kedaluwarsa. Kirim ulang transaksinya.",
+      { replyMarkup: mainKeyboard },
+    );
+
+    return { ok: false, kind: "transaction_clarification_missing" };
+  }
+
+  const transactions = [];
+  const sign = type === "income" ? "+" : "-";
+
+  for (const candidate of candidates.slice(0, 10)) {
+    const amount = Number(candidate?.amount);
+    const note = String(candidate?.note ?? "").trim();
+    const category = String(candidate?.category ?? (type === "income" ? "income" : "other")).trim();
+    const parsed = parseTransactionLine(`${sign}${amount} ${note} kategori ${category}`);
+
+    if (!parsed.ok) {
+      await sendTelegramMessage(
+        token,
+        chatId,
+        "Klarifikasi belum valid. Kirim ulang transaksi dengan nominal dan catatan yang jelas.",
+        { replyMarkup: mainKeyboard },
+      );
+
+      return { ok: false, kind: "transaction_clarification_invalid" };
+    }
+
+    transactions.push({
+      ...parsed.transaction,
+      original: candidate.original ?? `${amount} ${note}`,
+      confidence: Math.min(parsed.transaction.confidence, Number(candidate.confidence ?? 0.75)),
+    });
+  }
+
+  const saved = await saveTransactions(database, transactions);
+  const summary = await getSummary(database);
+  await clearChatSessionPendingAction(database, chatId);
+
+  const label = type === "income" ? "pemasukan" : "pengeluaran";
+  await sendTelegramMessage(
+    token,
+    chatId,
+    [
+      `Klarifikasi dipakai: ${label}.`,
+      "",
+      saved.length === 1 ? "Tersimpan: 1 transaksi" : `Tersimpan: ${saved.length} transaksi`,
+      `Saldo: ${formatRupiah(summary.balance)}`,
+    ].join("\n"),
+    { replyMarkup: mainKeyboard },
+  );
+
+  return {
+    ok: true,
+    kind: "transaction_clarified",
+    saved,
+    summary,
+  };
+}
+
+function parseClarifiedTransactionType(text) {
+  const normalized = String(text ?? "").trim().toLowerCase();
+
+  if (["pemasukan", "/pemasukan", "income", "masuk", "input pemasukan"].includes(normalized)) {
+    return "income";
+  }
+
+  if (["pengeluaran", "/pengeluaran", "expense", "keluar", "input pengeluaran"].includes(normalized)) {
+    return "expense";
+  }
+
+  return null;
 }
 
 function buildStartReply() {

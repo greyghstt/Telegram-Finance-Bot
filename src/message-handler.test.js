@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { initializeDatabase, openDatabase } from "./database.js";
+import {
+  initializeDatabase,
+  listCategoryAliases,
+  listCustomCategories,
+  listTransactions,
+  openDatabase,
+} from "./database.js";
 import { getPeriodRange, handleMessage } from "./message-handler.js";
 
 async function createTestDatabase() {
@@ -159,6 +165,66 @@ describe("message handler", () => {
       assert.equal(result.kind, "ai_transactions");
       assert.equal(result.saved[0].category, expectedCategory);
     }
+  });
+
+  it("saves custom categories and category aliases", async () => {
+    const database = await createTestDatabase();
+
+    const category = await handleMessage(database, "kategori baru kopi Kopi", { chatId: 123 });
+    const alias = await handleMessage(database, "alias kategori ngopi = kopi", { chatId: 123 });
+
+    const categories = await listCustomCategories(database, 123);
+    const aliases = await listCategoryAliases(database, 123);
+
+    assert.equal(category.command, "custom_category_save");
+    assert.match(category.reply, /Kategori disimpan/);
+    assert.equal(alias.command, "category_alias_save");
+    assert.match(alias.reply, /ngopi -> Kopi/);
+    assert.equal(categories[0].category, "kopi");
+    assert.equal(categories[0].label, "Kopi");
+    assert.equal(aliases[0].alias, "ngopi");
+    assert.equal(aliases[0].category, "kopi");
+  });
+
+  it("uses stored category aliases for AI category suggestions", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "kategori baru kopi Kopi", { chatId: 123 });
+    await handleMessage(database, "alias kategori ngopi = kopi", { chatId: 123 });
+
+    const result = await handleMessage(database, "ngopi 25k", {
+      chatId: 123,
+      extractTransactionCandidates: async () => ({
+        ok: true,
+        candidates: [
+          {
+            type: "expense",
+            amount: 25000,
+            note: "ngopi",
+            category: "ngopi",
+            confidence: 0.9,
+          },
+        ],
+      }),
+    });
+
+    assert.equal(result.kind, "ai_transactions");
+    assert.equal(result.saved[0].category, "kopi");
+  });
+
+  it("corrects transaction categories and stores a note alias", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "-25k ngopi kategori other", { chatId: 123 });
+    const corrected = await handleMessage(database, "koreksi kategori 1 kopi", { chatId: 123 });
+    const transactions = await listTransactions(database);
+    const aliases = await listCategoryAliases(database, 123);
+
+    assert.equal(corrected.command, "category_correction");
+    assert.equal(corrected.transaction.category, "kopi");
+    assert.equal(transactions[0].category, "kopi");
+    assert.equal(aliases[0].alias, "ngopi");
+    assert.equal(aliases[0].category, "kopi");
   });
 
   it("handles balance and history commands", async () => {
