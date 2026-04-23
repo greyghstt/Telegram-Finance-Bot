@@ -300,6 +300,13 @@ Text commands still cover some operational flows such as `transfer ...`,
 Malformed wallet or transfer text should return deterministic format guidance
 instead of going straight to AI extraction.
 
+Webhook incident note:
+
+- if `/health` is OK but `/api/telegram/webhook` returns 500 while
+  `/database/status` is healthy, check recent production logs for Postgres query
+  syntax errors in summary/category aggregation helpers before changing env vars
+  or webhook settings.
+
 ## Deploy and Rollback
 
 Production deploy:
