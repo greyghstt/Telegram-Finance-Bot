@@ -249,6 +249,19 @@ GitHub Actions runs on pushes to `main` and on pull requests. The workflow:
 If CI fails on the secret scan, inspect the reported file and line before
 retrying. Do not suppress the rule by committing the secret.
 
+## Telegram Command Surface
+
+The current Telegram command menu includes:
+
+- `/insight`, `/tanya`, `/laporanai`, `/reviewai`, `/anomali`
+- `/budget`, `/dompet`, `/tagihan`
+- `/pemasukan`, `/pengeluaran`, `/saldo`, `/hariini`, `/mingguini`,
+  `/bulanini`, `/riwayat`, `/kategori`, `/hapusterakhir`, `/undo`, `/export`,
+  `/reset`, `/help`, `/batal`, `/id`, `/stop`
+
+Text commands still cover some operational flows such as `transfer ...`,
+`transaksi rutin ...`, `hapus rutin ...`, and `tagihan tambah ...`.
+
 ## Deploy and Rollback
 
 Production deploy:

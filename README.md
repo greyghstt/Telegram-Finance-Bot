@@ -53,9 +53,17 @@ Telegram-Finance-Bot/
     PROJECT_PLAN.md
     RUNBOOK.md
   scripts/
+    backup-csv.js
     check-production.js
     ensure-local-secrets.js
+    import-csv.js
     local-chat-scenario.js
+    process-anomalies.js
+    process-bill-reminders.js
+    process-monthly-review.js
+    process-recurring.js
+    process-weekly-report.js
+    secret-scan.js
     setup-telegram-webhook.js
   src/
     ai-service.js
@@ -225,6 +233,7 @@ The Telegram commands remain Indonesian for now:
 /anomali
 /budget
 /dompet
+/tagihan
 /cari bensin
 /hapusterakhir
 /undo
@@ -258,8 +267,9 @@ budget minggu global 120k
 cek budget minggu
 budget tahun food 12jt
 saran budget
-dompet tambah cash
 dompet
+tagihan
+dompet tambah cash
 transfer bca cash 50k
 transaksi rutin tambah bulanan -500k kos kategori housing
 transaksi rutin
@@ -280,6 +290,12 @@ export csv
 reset
 help
 ```
+
+The Telegram command menu currently exposes `/laporanai`, `/reviewai`,
+`/anomali`, `/dompet`, and `/tagihan` in addition to the older finance
+commands. Some operational actions such as `transfer ...`, `transaksi rutin ...`,
+and `tagihan tambah ...` remain text commands rather than dedicated slash
+commands.
 
 Input modes:
 
