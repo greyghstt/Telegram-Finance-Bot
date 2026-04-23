@@ -323,6 +323,7 @@ Visible Telegram UX remains Indonesian:
 /anomali
 /budget
 /dompet
+/tagihan
 /hapusterakhir
 /export
 /reset
@@ -377,6 +378,10 @@ Automation notes:
 - `scripts/process-weekly-report.js` runs the read-only weekly AI report flow.
 - `scripts/process-monthly-review.js` runs the read-only monthly AI review flow.
 - `scripts/process-anomalies.js` runs the anomaly summary flow.
+- `scripts/process-recurring.js` runs due recurring rules and saves validated
+  transactions.
+- `scripts/process-bill-reminders.js` lists due bill reminders without sending
+  Telegram messages on its own.
 - All three flows compute the key numbers in app code first, then ask AI only
   to explain the compact payload.
 

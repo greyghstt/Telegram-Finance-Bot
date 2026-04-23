@@ -268,6 +268,18 @@ Do not interpret performance work as reducing AI involvement. The preferred
 direction is to keep AI involved while making AI calls smaller, faster, and
 better scoped.
 
+Current implemented state after that phase:
+
+- quick/deep AI paths are in place
+- latency metrics are implemented with `PERF_LOGS=1`
+- custom categories and aliases are implemented
+- transaction edit and soft delete with `undo` are implemented
+- CSV backup/import and multi-period budgets are implemented
+- wallets, transfers, recurring rules, and bill reminders are implemented
+- weekly AI report, monthly AI review, and anomaly checks are implemented as
+  read-only summaries with manual fallback
+- GitHub Actions CI plus tracked-file secret scanning are implemented
+
 Implementation priorities:
 
 1. Measure latency for database work, AI calls, and total Telegram response.
@@ -322,10 +334,10 @@ Before commits that touch env, AI, Telegram, Vercel, or Supabase code, run a
 targeted scan:
 
 ```powershell
-rg -n "s[k]-[A-Za-z0-9_-]{20,}|TELEGRAM_BOT_TOKEN=.*:A[A]|DATABASE_URL=postgresq[l]|postgresql://postgre[s]|13336512[5]7|85736275[6]8|AAE[f]" .
+npm.cmd run scan:secrets
 ```
 
-Expected result: no real secrets in tracked files.
+Expected result: `Secret scan clean.` and no real secrets in tracked files.
 
 ## Coding Style
 

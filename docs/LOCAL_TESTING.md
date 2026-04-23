@@ -36,6 +36,8 @@ Covered areas:
 - Weekly/monthly/yearly budgets, including `global` budget.
 - Wallet balances, transfers, recurring transaction rules, and bill reminders.
 - AI weekly report, monthly review, and anomaly fallback behavior.
+- Telegram command metadata for `/laporanai`, `/reviewai`, `/anomali`,
+  `/dompet`, and `/tagihan`.
 - Telegram service behavior, including database-backed income/expense input
   modes.
 - Chat ID access control.
@@ -356,6 +358,8 @@ Processor scripts:
 npm.cmd run report:weekly
 npm.cmd run report:monthly
 npm.cmd run report:anomalies
+npm.cmd run process:recurring
+npm.cmd run process:bills
 ```
 
 Expected behavior:
