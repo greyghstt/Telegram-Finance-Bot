@@ -313,6 +313,7 @@ Deterministic input routing now prefers manual handling before AI:
 - explicit commands and slash commands
 - manual transaction parsing, including amount-first and note-first variants
 - wallet and transfer intents such as `dompet tambah cash`, `saldo dompet`,
+  `saldo dompet bank`, `set saldo dompet bank 70k`,
   `transfer dari bca ke cash 50k`, and `pindah 50k dari cash ke bca`
 - wallet-oriented income phrases such as `topup gopay 100k`,
   `isi saldo 150k ke dana`, `saldo awal cash 200k`, and
@@ -395,7 +396,11 @@ Wallets, transfers, and scheduled records:
 dompet tambah cash
 buat dompet bca
 dompet tambah bca
+default dompet bca
 saldo dompet
+saldo dompet bank
+set saldo dompet bank 70230
+tambah saldo dompet bank 20k
 dompet
 transfer bca cash 50k tarik tunai
 transfer dari bca ke cash 50k tarik tunai
@@ -415,9 +420,24 @@ hapus tagihan 3
 ```
 
 Wallet balances combine wallet-tagged income and expense transactions with
-wallet-to-wallet transfers. Transfers are stored separately so they do not
-inflate income or expense summaries. Due bill reminder checks are scoped to the
-active Telegram chat.
+wallet-to-wallet transfers plus explicit wallet balance entries. Transfers and
+wallet balance set/adjust entries are stored separately so they do not inflate
+income or expense summaries. Due bill reminder checks are scoped to the active
+Telegram chat.
+
+Wallet-aware flow:
+
+- `set saldo dompet bank 70230` sets the tracked wallet balance only.
+- `tambah saldo dompet bank 20k` adjusts the tracked wallet balance only.
+- `masuk ke bca 500k gaji` saves income and tags wallet `bca`.
+- `-20k makan dompet cash` saves expense and reduces wallet `cash`.
+- `transfer bank cash 50k` moves value between wallets only.
+- `default dompet bank` marks the fallback wallet for later expenses.
+- for expense text without an explicit wallet:
+  - use the named wallet when present
+  - otherwise use the default wallet
+  - otherwise use the single available wallet
+  - otherwise ask for clarification
 
 AI report automation:
 
@@ -446,6 +466,10 @@ extraction uses the quick AI path with compact JSON output.
 Wallet creation, wallet balance phrases, transfers, and explicit input-mode
 messages are routed through deterministic parsing first so AI is not used for
 cases that can already be handled safely by rules.
+AI is used more broadly for wallet-aware intent understanding when text is still
+natural or ambiguous, for example `saldo bank 70230` or `bayar makan 20k pakai
+gopay`. Even then, the app remains the final validator and may ask for
+confirmation before executing sensitive actions such as wallet balance set.
 AI may suggest a category, but the app normalizes it to existing categories
 such as `food`, `education`, `transport`, or `housing`; unknown suggestions
 fall back to `other`.

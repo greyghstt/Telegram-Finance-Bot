@@ -915,7 +915,22 @@ Rules:
 - Use AI only when deterministic parsing cannot confidently decide.
 - Keep wallet creation, wallet summaries, wallet-oriented balance phrases, and
   transfer syntax on deterministic routing before AI fallback.
+- Separate wallet actions from finance summary actions:
+  - wallet_balance_set
+  - wallet_balance_adjust
+  - income_to_wallet
+  - expense_from_wallet
+  - wallet_transfer
 - If transaction type is ambiguous, ask the user to choose income or expense.
+
+Wallet-aware expense direction:
+
+- explicit wallet wins first
+- then default wallet
+- then a single available wallet
+- otherwise ask for clarification
+- AI may assist with intent understanding, but the app must not guess a wallet
+  silently when confidence is low
 
 ### AI Category Direction
 

@@ -211,6 +211,9 @@ Target direction:
   `masuk ke bca 500k gaji` should stay on deterministic routing before AI.
 - Wallet and transfer commands should prefer rule-based parsing and clear format
   hints over AI fallback when the message is incomplete.
+- Wallet balance actions such as `set saldo dompet` or `tambah saldo dompet`
+  are sensitive and should require explicit routing plus confirmation when the
+  intent is inferred from ambiguous natural text.
 - AI may auto-save a simple transaction only after app-side validation.
 - Ambiguous transactions should ask the user to choose income, expense, or
   cancel.
