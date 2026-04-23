@@ -260,6 +260,40 @@ AI must never:
 
 For `/insight`, send summarized data only. Do not send full database dumps.
 
+## Next Phase Guidance
+
+The next major phase is **AI-first performance and flexible input upgrade**.
+Do not interpret performance work as reducing AI involvement. The preferred
+direction is to keep AI involved while making AI calls smaller, faster, and
+better scoped.
+
+Implementation priorities:
+
+1. Measure latency for database work, AI calls, and total Telegram response.
+2. Split AI behavior into quick AI and deep AI paths.
+3. Keep MiniMax-M2.7-highspeed as the only configured model for now.
+4. Make unsigned input the normal flow.
+5. Keep `+` and `-` as optional backward-compatible shortcuts.
+6. Add AI category suggestion with app-side normalization.
+7. Add custom category and alias support after suggestions are stable.
+
+Quick AI should be used for:
+
+- natural transaction extraction
+- category suggestion
+- strict JSON output
+
+Deep AI should be used for:
+
+- `/insight`
+- finance Q&A
+- budget advice
+- weekly/monthly reports
+
+Do not add new environment variables for quick/deep profiles until code uses
+them. If added later, document them in `.env.example`, `README.md`, and
+`docs/RUNBOOK.md`.
+
 ## Testing Requirements
 
 For code changes, run:

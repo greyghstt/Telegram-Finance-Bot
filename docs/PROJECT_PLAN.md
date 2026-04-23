@@ -636,9 +636,12 @@ Every finance insight prompt should include these constraints:
 
 ## AI Cost Control
 
-- Keep `AI_MAX_TOKENS` low at first.
+- Keep `AI_MAX_TOKENS=2500` as the current fixed limit while SumoPod usage is
+  affordable.
 - Send summaries, not full transaction history.
 - Limit recent transactions sent to AI.
+- Prefer compact prompts and bounded reply formats over removing AI from the
+  feature.
 - Use SumoPod budget limits.
 - Monitor usage after every production test.
 - Disable AI with `AI_ENABLED=false` if cost or quality is not acceptable.
@@ -660,6 +663,134 @@ Required behavior:
 - Bot must return a manual fallback summary.
 - Logs must not print API keys.
 - Existing non-AI commands must continue working.
+
+## Next Phase: AI-First Performance And Flexible Input
+
+The next phase should improve response speed without reducing AI involvement.
+The goal is not to remove AI from the flow. The goal is to make AI work in a
+faster and more controlled way.
+
+Principles:
+
+- AI should remain involved in natural parsing, insight, Q&A, budget advice,
+  and category suggestions.
+- Simple deterministic work should still be validated by the app.
+- The user should not feel blocked by slow AI when a quick answer is possible.
+- Data sent to AI should be compact and purpose-built.
+- Replies should stay plain text and concise for Telegram.
+
+### Performance Strategy
+
+Split AI usage into two profiles:
+
+```text
+Quick AI
+  -> natural transaction extraction
+  -> category suggestion
+  -> small JSON output
+  -> short timeout
+
+Deep AI
+  -> insight
+  -> finance Q&A
+  -> budget advice
+  -> monthly/weekly reports
+  -> richer explanation
+```
+
+Recommended behavior:
+
+- Quick AI should use compact prompts and strict JSON.
+- Deep AI may use larger summarized context.
+- Do not send full transaction history unless strictly needed.
+- Cache repeated summary/insight requests where safe.
+- Measure AI latency, database latency, and total response latency.
+- Keep MiniMax-M2.7-highspeed as the fixed model for now.
+
+Suggested environment direction:
+
+```env
+AI_MODEL=MiniMax-M2.7-highspeed
+AI_TEMPERATURE=0.2
+AI_MAX_TOKENS=2500
+AI_TIMEOUT_MS=25000
+```
+
+Future code may add separate timeout/token profiles, for example:
+
+```text
+AI_QUICK_TIMEOUT_MS=12000
+AI_DEEP_TIMEOUT_MS=25000
+AI_QUICK_MAX_TOKENS=700
+AI_DEEP_MAX_TOKENS=2500
+```
+
+Only add these variables when the code actually uses them.
+
+### Input Direction
+
+Normal usage should not require `+` or `-`.
+
+Target examples:
+
+```text
+/pengeluaran
+20k bensin
+
+/pemasukan
+500k gaji
+
+tadi beli bensin 20 ribu dan makan ayam 15 ribu
+```
+
+Rules:
+
+- Keep `+` and `-` supported as legacy shortcuts.
+- Do not promote `+` and `-` as required in help text.
+- Prefer Telegram buttons and input modes for explicit type selection.
+- Use AI only when deterministic parsing cannot confidently decide.
+- If transaction type is ambiguous, ask the user to choose income or expense.
+
+### AI Category Direction
+
+Categories should become more flexible without letting AI create messy data.
+
+Target behavior:
+
+```text
+ayam geprek dekat kampus -> food
+praktikum elektronika -> education
+oli motor -> transport
+bayar kos -> housing
+```
+
+Rules:
+
+- AI may suggest a category.
+- The app must normalize AI suggestions to known categories when possible.
+- Unknown suggestions should become `other` or ask the user before creating a
+  custom category.
+- User corrections should be stored later as category aliases or rules.
+
+Future category features:
+
+1. AI category suggestion.
+2. Custom categories.
+3. Category aliases.
+4. Merge category command.
+5. Learn from user corrections.
+6. Better category analytics in reports and dashboard.
+
+### Recommended Next Implementation Order
+
+1. Add latency instrumentation for database, AI, and total response time.
+2. Add quick/deep AI profiles in code.
+3. Optimize natural parser prompts and output size.
+4. Make unsigned input the main documented and tested flow.
+5. Add AI category suggestion with app-side normalization.
+6. Add custom category and alias storage.
+7. Add category correction commands.
+8. Add AI weekly/monthly report after performance is stable.
 
 ## Verification Commands
 
@@ -686,18 +817,22 @@ rg -n "s[k]-[A-Za-z0-9_-]{20,}|TELEGRAM_BOT_TOKEN=.*:A[A]|DATABASE_URL=postgresq
 
 Current non-AI backlog:
 
-1. Add GitHub Actions CI for automated tests and secret scanning on every push.
-2. Add automatic backup/export, for example a scheduled CSV export or a
+1. Add performance instrumentation and response-time logging.
+2. Add GitHub Actions CI for automated tests and secret scanning on every push.
+3. Add automatic backup/export, for example a scheduled CSV export or a
    documented Supabase backup routine.
-3. Add edit transaction by ID, so mistakes can be fixed without deleting and
+4. Add edit transaction by ID, so mistakes can be fixed without deleting and
    re-entering a transaction.
-4. Add an automatic monthly report from the bot.
+5. Add an automatic monthly report from the bot.
 
 AI backlog:
 
-1. Improve clarification flow for ambiguous AI transaction candidates.
-2. Add budget editing shortcuts if needed.
-3. Add richer monthly reports.
+1. Add quick/deep AI profiles for speed without reducing AI involvement.
+2. Add AI category suggestions with app-side normalization.
+3. Add custom categories and category aliases.
+4. Improve clarification flow for ambiguous AI transaction candidates.
+5. Add budget editing shortcuts if needed.
+6. Add richer weekly/monthly reports.
 
 Optional future improvements:
 
