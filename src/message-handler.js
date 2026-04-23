@@ -2,21 +2,35 @@ import {
   clearChatSessionPendingAction,
   clearBudgets,
   deleteLastTransaction,
+  deleteBillReminder,
   deleteBudget,
+  deleteRecurringRule,
   deleteTransactionById,
+  getWalletBalances,
   getBudgetProgress,
   getChatSession,
   getCategorySummary,
   getSummary,
+  listBillReminders,
   listCategoryAliases,
   listBudgets,
   listCustomCategories,
+  listRecurringRules,
+  listTransfers,
+  listDueBillReminders,
+  listDueRecurringRules,
   listTransactions,
+  listWallets,
+  advanceRecurringRule,
   restoreTransactionById,
   saveCategoryAlias,
   saveBudget,
+  saveBillReminder,
   saveCustomCategory,
+  saveRecurringRule,
   saveTransactions,
+  saveTransfer,
+  saveWallet,
   setChatSessionPendingAction,
   searchTransactions,
   updateTransactionCategory,
@@ -232,6 +246,50 @@ async function handleVariableCommand(database, command, options) {
 
   if (command.command === "category_correction") {
     return buildCategoryCorrectionResponse(database, command, options);
+  }
+
+  if (command.command === "wallet_save") {
+    return buildWalletSaveResponse(database, command, options);
+  }
+
+  if (command.command === "wallet_list") {
+    return buildWalletListResponse(database, options);
+  }
+
+  if (command.command === "transfer_save") {
+    return buildTransferSaveResponse(database, command, options);
+  }
+
+  if (command.command === "transfer_list") {
+    return buildTransferListResponse(database, options);
+  }
+
+  if (command.command === "recurring_save") {
+    return buildRecurringSaveResponse(database, command, options);
+  }
+
+  if (command.command === "recurring_list") {
+    return buildRecurringListResponse(database, options);
+  }
+
+  if (command.command === "recurring_delete") {
+    return buildRecurringDeleteResponse(database, command.id, options);
+  }
+
+  if (command.command === "bill_save") {
+    return buildBillSaveResponse(database, command, options);
+  }
+
+  if (command.command === "bill_list") {
+    return buildBillListResponse(database, options);
+  }
+
+  if (command.command === "bill_delete") {
+    return buildBillDeleteResponse(database, command.id, options);
+  }
+
+  if (command.command === "bill_due") {
+    return buildBillDueResponse(database, options);
   }
 
   return {
@@ -807,6 +865,174 @@ async function buildCategoryCorrectionResponse(database, command, options) {
   };
 }
 
+async function buildWalletSaveResponse(database, command, options) {
+  const wallet = await measureDb(options, "saveWallet", () =>
+    saveWallet(database, { chatId: getChatId(options), name: command.name }));
+  const balances = await measureDb(options, "getWalletBalances", () =>
+    getWalletBalances(database, getChatId(options)));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "wallet_save",
+    wallet,
+    balances,
+    reply: [`Dompet ${wallet.name} disimpan.`, "", buildWalletSummaryLines(balances).join("\n")].join("\n"),
+  };
+}
+
+async function buildWalletListResponse(database, options) {
+  const balances = await measureDb(options, "getWalletBalances", () =>
+    getWalletBalances(database, getChatId(options)));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "wallet_list",
+    wallets: balances,
+    reply: buildWalletSummaryLines(balances).join("\n"),
+  };
+}
+
+async function buildTransferSaveResponse(database, command, options) {
+  const amount = parseBudgetAmount(command.amountText);
+  if (!amount) {
+    return { ok: false, kind: "error", command: "transfer_save", reply: "Nominal transfer belum valid. Contoh: transfer cash bca 50k" };
+  }
+
+  const transfer = await measureDb(options, "saveTransfer", () =>
+    saveTransfer(database, {
+      chatId: getChatId(options),
+      fromWallet: command.fromWallet,
+      toWallet: command.toWallet,
+      amount,
+      note: command.note,
+    }));
+  const balances = await measureDb(options, "getWalletBalances", () =>
+    getWalletBalances(database, getChatId(options)));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "transfer_save",
+    transfer,
+    wallets: balances,
+    reply: [
+      `Transfer ${formatRupiah(transfer.amount)} dari ${transfer.fromWallet} ke ${transfer.toWallet} tersimpan.`,
+      "",
+      buildWalletSummaryLines(balances).join("\n"),
+    ].join("\n"),
+  };
+}
+
+async function buildTransferListResponse(database, options) {
+  const transfers = await measureDb(options, "listTransfers", () => listTransfers(database, getChatId(options), { limit: 10 }));
+  const lines = ["Riwayat transfer"];
+
+  if (transfers.length === 0) {
+    lines.push("", "Belum ada transfer.");
+  } else {
+    lines.push("");
+    for (const transfer of transfers) {
+      lines.push(`- #${transfer.id} ${transfer.fromWallet} -> ${transfer.toWallet}: ${formatRupiah(transfer.amount)}`);
+    }
+  }
+
+  return { ok: true, kind: "command", command: "transfer_list", transfers, reply: lines.join("\n") };
+}
+
+async function buildRecurringSaveResponse(database, command, options) {
+  const rule = await measureDb(options, "saveRecurringRule", () =>
+    saveRecurringRule(database, {
+      chatId: getChatId(options),
+      cadence: command.cadence,
+      templateMessage: command.templateMessage,
+      nextRunAt: nextRecurringRunAt(command.cadence, options.now).toISOString(),
+    }));
+
+  return {
+    ok: true,
+    kind: "command",
+    command: "recurring_save",
+    rule,
+    reply: `Transaksi rutin ${cadenceLabel(rule.cadence)} disimpan. ID: ${rule.id}`,
+  };
+}
+
+async function buildRecurringListResponse(database, options) {
+  const rules = await measureDb(options, "listRecurringRules", () => listRecurringRules(database, getChatId(options)));
+  const lines = ["Transaksi rutin"];
+  if (rules.length === 0) {
+    lines.push("", "Belum ada transaksi rutin.");
+  } else {
+    lines.push("");
+    for (const rule of rules) {
+      lines.push(`- #${rule.id} ${cadenceLabel(rule.cadence)} | ${rule.templateMessage}`);
+    }
+  }
+  return { ok: true, kind: "command", command: "recurring_list", rules, reply: lines.join("\n") };
+}
+
+async function buildRecurringDeleteResponse(database, id, options) {
+  const deleted = await measureDb(options, "deleteRecurringRule", () => deleteRecurringRule(database, id));
+  if (!deleted) {
+    return { ok: false, kind: "error", command: "recurring_delete", reply: `Transaksi rutin #${id} tidak ditemukan.` };
+  }
+  return { ok: true, kind: "command", command: "recurring_delete", deleted, reply: `Transaksi rutin #${deleted.id} dimatikan.` };
+}
+
+async function buildBillSaveResponse(database, command, options) {
+  const amount = command.amountText ? parseBudgetAmount(command.amountText) : null;
+  const reminder = await measureDb(options, "saveBillReminder", () =>
+    saveBillReminder(database, {
+      chatId: getChatId(options),
+      title: command.title,
+      amount,
+      category: command.category,
+      dueDay: command.dueDay,
+    }));
+  return { ok: true, kind: "command", command: "bill_save", reminder, reply: `Tagihan ${reminder.title} disimpan. Jatuh tempo tiap tanggal ${reminder.dueDay}.` };
+}
+
+async function buildBillListResponse(database, options) {
+  const reminders = await measureDb(options, "listBillReminders", () => listBillReminders(database, getChatId(options)));
+  const lines = ["Tagihan"];
+  if (reminders.length === 0) {
+    lines.push("", "Belum ada reminder tagihan.");
+  } else {
+    lines.push("");
+    for (const reminder of reminders) {
+      const amount = reminder.amount ? ` - ${formatRupiah(reminder.amount)}` : "";
+      lines.push(`- #${reminder.id} ${reminder.title}${amount} | tanggal ${reminder.dueDay}`);
+    }
+  }
+  return { ok: true, kind: "command", command: "bill_list", reminders, reply: lines.join("\n") };
+}
+
+async function buildBillDeleteResponse(database, id, options) {
+  const deleted = await measureDb(options, "deleteBillReminder", () => deleteBillReminder(database, id));
+  if (!deleted) {
+    return { ok: false, kind: "error", command: "bill_delete", reply: `Tagihan #${id} tidak ditemukan.` };
+  }
+  return { ok: true, kind: "command", command: "bill_delete", deleted, reply: `Tagihan #${deleted.id} dihapus.` };
+}
+
+async function buildBillDueResponse(database, options) {
+  const reminders = await measureDb(options, "listDueBillReminders", () =>
+    listDueBillReminders(database, options.now ?? new Date(), getChatId(options)));
+  const lines = ["Tagihan jatuh tempo hari ini"];
+  if (reminders.length === 0) {
+    lines.push("", "Tidak ada tagihan jatuh tempo hari ini.");
+  } else {
+    lines.push("");
+    for (const reminder of reminders) {
+      const amount = reminder.amount ? ` - ${formatRupiah(reminder.amount)}` : "";
+      lines.push(`- ${reminder.title}${amount}`);
+    }
+  }
+  return { ok: true, kind: "command", command: "bill_due", reminders, reply: lines.join("\n") };
+}
+
 async function buildInsightData(database, options = {}) {
   const periodLabel = "semua waktu";
   const summary = await measureDb(options, "getSummary", () => getSummary(database));
@@ -1111,6 +1337,55 @@ function budgetPeriodUnitLabel(period) {
 
 function formatBudgetCategoryList(budgets) {
   return budgets.map((budget) => formatCategoryLabel(budget.category)).join(", ");
+}
+
+function buildWalletSummaryLines(wallets) {
+  const lines = ["Ringkasan dompet"];
+
+  if (!wallets.length) {
+    lines.push("", "Belum ada dompet.");
+    return lines;
+  }
+
+  lines.push("");
+  for (const wallet of wallets) {
+    lines.push(`- ${capitalizeFirst(wallet.name)}: ${formatRupiah(wallet.balance)}`);
+  }
+
+  return lines;
+}
+
+function recurringCommandCadence(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "harian") {
+    return "daily";
+  }
+  if (normalized === "mingguan") {
+    return "weekly";
+  }
+  return "monthly";
+}
+
+function cadenceLabel(value) {
+  if (value === "daily") {
+    return "harian";
+  }
+  if (value === "weekly") {
+    return "mingguan";
+  }
+  return "bulanan";
+}
+
+function nextRecurringRunAt(cadence, now = new Date()) {
+  const date = new Date(now);
+  if (cadence === "daily") {
+    date.setUTCDate(date.getUTCDate() + 1);
+  } else if (cadence === "weekly") {
+    date.setUTCDate(date.getUTCDate() + 7);
+  } else {
+    date.setUTCMonth(date.getUTCMonth() + 1);
+  }
+  return date;
 }
 
 function shouldTryNaturalTransaction(parsed, message, options) {
@@ -1621,6 +1896,13 @@ function buildHelpResponse() {
       "budget minggu global 120k",
       "cek budget minggu",
       "saran budget",
+      "dompet tambah cash",
+      "dompet",
+      "transfer bca cash 50k",
+      "transaksi rutin tambah bulanan -500k kos kategori housing",
+      "transaksi rutin",
+      "tagihan tambah wifi 250k tiap 15 kategori bills",
+      "tagihan hari ini",
       "kategori baru kopi Kopi",
       "alias kategori ngopi = kopi",
       "koreksi kategori 12 food",
@@ -1637,6 +1919,72 @@ function buildHelpResponse() {
 
 function parseVariableCommand(message) {
   const text = String(message ?? "").trim();
+
+  const walletSaveMatch = text.match(/^\/?(?:dompet tambah|wallet add|akun tambah)\s+([a-zA-Z0-9_-]{2,32})$/i);
+  if (walletSaveMatch) {
+    return { command: "wallet_save", name: walletSaveMatch[1].trim() };
+  }
+
+  if (/^\/?(?:dompet|cek dompet|wallet|akun)$/i.test(text)) {
+    return { command: "wallet_list" };
+  }
+
+  const transferMatch = text.match(/^\/?transfer\s+([a-zA-Z0-9_-]{2,32})\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+)(?:\s+(.{2,80}))?$/i);
+  if (transferMatch) {
+    return {
+      command: "transfer_save",
+      fromWallet: transferMatch[1].trim(),
+      toWallet: transferMatch[2].trim(),
+      amountText: transferMatch[3].trim(),
+      note: transferMatch[4]?.trim() ?? "",
+    };
+  }
+
+  if (/^\/?(?:transfer|riwayat transfer)$/i.test(text)) {
+    return { command: "transfer_list" };
+  }
+
+  const recurringSaveMatch = text.match(/^\/?(?:transaksi rutin tambah|rutin tambah)\s+(harian|mingguan|bulanan)\s+(.{3,200})$/i);
+  if (recurringSaveMatch) {
+    return {
+      command: "recurring_save",
+      cadence: recurringCommandCadence(recurringSaveMatch[1]),
+      templateMessage: recurringSaveMatch[2].trim(),
+    };
+  }
+
+  if (/^\/?(?:transaksi rutin|rutin)$/i.test(text)) {
+    return { command: "recurring_list" };
+  }
+
+  const recurringDeleteMatch = text.match(/^\/?(?:hapus|delete)\s+rutin\s+#?(\d+)$/i);
+  if (recurringDeleteMatch) {
+    return { command: "recurring_delete", id: Number(recurringDeleteMatch[1]) };
+  }
+
+  const billSaveMatch = text.match(/^\/?(?:tagihan tambah|reminder tambah)\s+(.{2,60})\s+(\d+[\w.,]*)\s+tiap\s+(\d{1,2})(?:\s+kategori\s+([a-zA-Z0-9_-]{2,32}))?$/i);
+  if (billSaveMatch) {
+    return {
+      command: "bill_save",
+      title: billSaveMatch[1].trim(),
+      amountText: billSaveMatch[2].trim(),
+      dueDay: Number(billSaveMatch[3]),
+      category: billSaveMatch[4]?.trim() ?? null,
+    };
+  }
+
+  if (/^\/?(?:tagihan|reminder tagihan)$/i.test(text)) {
+    return { command: "bill_list" };
+  }
+
+  if (/^\/?(?:tagihan hari ini|cek tagihan)$/i.test(text)) {
+    return { command: "bill_due" };
+  }
+
+  const billDeleteMatch = text.match(/^\/?(?:hapus|delete)\s+tagihan\s+#?(\d+)$/i);
+  if (billDeleteMatch) {
+    return { command: "bill_delete", id: Number(billDeleteMatch[1]) };
+  }
 
   const budgetPeriodAlias = String(text ?? "")
     .replace(/^\/?budget\s+minggu\s+/i, "/budget weekly ")

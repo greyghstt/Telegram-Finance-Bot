@@ -146,6 +146,7 @@ latest Supabase migration has been applied:
 ```text
 supabase/migrations/20260423113000_add_custom_categories.sql
 supabase/migrations/20260423143000_add_transaction_soft_delete.sql
+supabase/migrations/20260423170000_add_wallets_recurring_and_bills.sql
 ```
 
 ## Transaction Correction Checks
@@ -182,6 +183,24 @@ Check that:
 - `budget tahun transport 6jt` uses the current year.
 - `global` budget compares against total expenses for that period, not one
   category only.
+
+## Wallet, Recurring, And Bill Checks
+
+Check that:
+
+- `dompet tambah cash` and `dompet tambah bca` create per-chat wallet records.
+- wallet-tagged transactions such as `-20k bensin dompet cash` affect wallet
+  balance and still count in the normal expense summary.
+- `transfer bca cash 50k` changes wallet balances only and does not add new
+  income or expense.
+- `transaksi rutin tambah bulanan -500k kos kategori housing` stores a rule but
+  does not write a transaction until the processor runs.
+- `npm.cmd run process:recurring` should skip invalid templates and advance the
+  next run only after saving valid transactions.
+- `tagihan tambah wifi 250k tiap 15 kategori bills` stores a per-chat reminder.
+- `tagihan hari ini` only shows due reminders for the current Telegram chat.
+- `npm.cmd run process:bills` lists due reminders without exposing notes,
+  secrets, or unrelated chat context.
 
 ## Vercel AI Environment
 

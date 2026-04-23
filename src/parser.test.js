@@ -78,6 +78,13 @@ describe("parseTransactionLine", () => {
     assert.equal(result.transaction.date.value, "2026-04-16");
   });
 
+  it("supports explicit wallet metadata", () => {
+    const result = parseTransactionLine("-20k bensin dompet cash");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.transaction.wallet, "cash");
+  });
+
   it("supports negative sign for expense and large income", () => {
     const expense = parseTransactionLine("- 15k parkir");
     const income = parseTransactionLine("+ Rp2.500.000 gaji bca");

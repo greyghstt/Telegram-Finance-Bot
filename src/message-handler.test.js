@@ -484,6 +484,53 @@ describe("message handler", () => {
     assert.match(listed.reply, /Global: Rp\u00a0100.000 \/ Rp\u00a0120.000 \(83%\)/);
   });
 
+  it("manages wallets and transfers without changing income expense summary logic", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "dompet tambah cash", { chatId: 123 });
+    await handleMessage(database, "dompet tambah bca", { chatId: 123 });
+    await handleMessage(database, "+500k gaji dompet bca", { chatId: 123 });
+    await handleMessage(database, "transfer bca cash 100k isi cash", { chatId: 123 });
+
+    const wallets = await handleMessage(database, "dompet", { chatId: 123 });
+    const transfers = await handleMessage(database, "transfer", { chatId: 123 });
+    const balance = await handleMessage(database, "saldo", { chatId: 123 });
+
+    assert.match(wallets.reply, /Bca: Rp\u00a0400.000/);
+    assert.match(wallets.reply, /Cash: Rp\u00a0100.000/);
+    assert.match(transfers.reply, /bca -> cash/i);
+    assert.equal(balance.summary.balance, 500000);
+  });
+
+  it("stores recurring transactions and bill reminders", async () => {
+    const database = await createTestDatabase();
+
+    const recurring = await handleMessage(database, "transaksi rutin tambah bulanan -500k kos kategori housing", { chatId: 123 });
+    const recurringList = await handleMessage(database, "transaksi rutin", { chatId: 123 });
+    const bill = await handleMessage(database, "tagihan tambah wifi 250k tiap 15 kategori bills", { chatId: 123 });
+    const billList = await handleMessage(database, "tagihan", { chatId: 123 });
+
+    assert.equal(recurring.command, "recurring_save");
+    assert.match(recurringList.reply, /bulanan/);
+    assert.equal(bill.command, "bill_save");
+    assert.match(billList.reply, /wifi/);
+  });
+
+  it("scopes due bill reminders to the active chat", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "tagihan tambah wifi 250k tiap 15 kategori bills", { chatId: 123 });
+    await handleMessage(database, "tagihan tambah listrik 400k tiap 15 kategori bills", { chatId: 456 });
+
+    const due = await handleMessage(database, "tagihan hari ini", {
+      chatId: 123,
+      now: new Date("2026-04-15T09:00:00.000Z"),
+    });
+
+    assert.match(due.reply, /wifi/);
+    assert.doesNotMatch(due.reply, /listrik/);
+  });
+
   it("deletes budgets and requires reset instructions", async () => {
     const database = await createTestDatabase();
 
