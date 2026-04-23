@@ -89,11 +89,11 @@ describe("parseTransactionLine", () => {
     assert.equal(income.transaction.paymentMethod, "bank_transfer");
   });
 
-  it("rejects transactions without a leading sign", () => {
+  it("asks for explicit type when direct input has no sign or mode", () => {
     const result = parseTransactionLine("20k bensin");
 
     assert.equal(result.ok, false);
-    assert.match(result.error, /diawali tanda \+/);
+    assert.match(result.error, /Tipe transaksi belum jelas/);
   });
 
   it("parses unsigned transactions when default type is explicit", () => {

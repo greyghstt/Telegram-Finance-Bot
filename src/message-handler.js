@@ -30,6 +30,45 @@ const TRANSACTION_TIME_FORMATTER = new Intl.DateTimeFormat("id-ID", {
   minute: "2-digit",
   hour12: false,
 });
+const KNOWN_CATEGORIES = new Set([
+  "food",
+  "transport",
+  "groceries",
+  "bills",
+  "health",
+  "education",
+  "shopping",
+  "entertainment",
+  "housing",
+  "family",
+  "donation",
+  "debt",
+  "income",
+  "other",
+]);
+const CATEGORY_ALIASES = new Map([
+  ["makanan", "food"],
+  ["minuman", "food"],
+  ["jajan", "food"],
+  ["kuliner", "food"],
+  ["ayam", "food"],
+  ["transportasi", "transport"],
+  ["kendaraan", "transport"],
+  ["motor", "transport"],
+  ["vehicle", "transport"],
+  ["bensin", "transport"],
+  ["oli", "transport"],
+  ["praktikum", "education"],
+  ["elektronika", "education"],
+  ["kampus", "education"],
+  ["kuliah", "education"],
+  ["sekolah", "education"],
+  ["kos", "housing"],
+  ["kost", "housing"],
+  ["rent", "housing"],
+  ["sewa", "housing"],
+  ["rumah", "housing"],
+]);
 
 export async function handleMessage(database, message, options = {}) {
   const metrics = options.metrics ?? createMetrics();
@@ -910,7 +949,9 @@ function shouldTryNaturalTransaction(parsed, message, options) {
     return false;
   }
 
-  return parsed.error.includes("diawali tanda") || parsed.error.includes("Format pesan belum dikenali");
+  return parsed.error.includes("Tipe transaksi belum jelas")
+    || parsed.error.includes("diawali tanda")
+    || parsed.error.includes("Format pesan belum dikenali");
 }
 
 function validateAiTransactionCandidates(candidates, original) {
@@ -992,7 +1033,7 @@ function buildTransactionClarificationReply(candidates) {
   ];
 
   candidates.slice(0, 3).forEach((candidate, index) => {
-    lines.push(`${index + 1}. ${formatRupiah(candidate.amount)} ${candidate.note} [${candidate.category}]`);
+    lines.push(`${index + 1}. ${formatRupiah(candidate.amount)} ${candidate.note} [${formatCategoryLabel(candidate.category)}]`);
   });
 
   lines.push("");
@@ -1003,8 +1044,13 @@ function buildTransactionClarificationReply(candidates) {
 
 function normalizeAiCategory(value, type) {
   const category = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
-  if (category) {
+  if (KNOWN_CATEGORIES.has(category)) {
     return category;
+  }
+
+  const aliased = CATEGORY_ALIASES.get(category);
+  if (aliased) {
+    return aliased;
   }
 
   return type === "income" ? "income" : "other";

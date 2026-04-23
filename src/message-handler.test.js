@@ -128,6 +128,39 @@ describe("message handler", () => {
     assert.match(result.reply, /belum bisa memvalidasi/i);
   });
 
+  it("normalizes AI category suggestions to existing categories", async () => {
+    const examples = [
+      ["ayam geprek dekat kampus 20k", "makanan", "food"],
+      ["praktikum elektronika 50k", "praktikum", "education"],
+      ["oli motor 80k", "vehicle", "transport"],
+      ["bayar kos 700k", "rent", "housing"],
+      ["koleksi random 10k", "hobby", "other"],
+    ];
+
+    for (const [message, suggestedCategory, expectedCategory] of examples) {
+      const database = await createTestDatabase();
+      const result = await handleMessage(database, message, {
+        extractTransactionCandidates: async () => ({
+          ok: true,
+          profile: "quick",
+          latencyMs: 1,
+          candidates: [
+            {
+              type: "expense",
+              amount: 20000,
+              note: message.replace(/\s+\d+k$/i, ""),
+              category: suggestedCategory,
+              confidence: 0.9,
+            },
+          ],
+        }),
+      });
+
+      assert.equal(result.kind, "ai_transactions");
+      assert.equal(result.saved[0].category, expectedCategory);
+    }
+  });
+
   it("handles balance and history commands", async () => {
     const database = await createTestDatabase();
 
