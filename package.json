@@ -19,6 +19,7 @@
     "report:monthly": "node scripts/process-monthly-review.js",
     "report:anomalies": "node scripts/process-anomalies.js",
     "check:production": "node scripts/check-production.js",
+    "scan:secrets": "node scripts/secret-scan.js",
     "test": "node --test",
     "test:local-chat": "node scripts/local-chat-scenario.js"
   },

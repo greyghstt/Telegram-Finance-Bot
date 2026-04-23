@@ -68,6 +68,7 @@ Local checks:
 ```powershell
 npm.cmd test
 npm.cmd run test:local-chat
+npm.cmd run scan:secrets
 ```
 
 Configuration checks:
@@ -235,6 +236,18 @@ AI_TIMEOUT_MS=25000
 Use Vercel CLI only if the value can be passed without printing secrets. If
 the CLI prompt would expose `AI_API_KEY`, set it manually in the Vercel
 Dashboard instead.
+
+## CI Checks
+
+GitHub Actions runs on pushes to `main` and on pull requests. The workflow:
+
+- installs dependencies with `npm ci`
+- runs `npm test`
+- runs `npm run test:local-chat`
+- runs `npm run scan:secrets`
+
+If CI fails on the secret scan, inspect the reported file and line before
+retrying. Do not suppress the rule by committing the secret.
 
 ## Deploy and Rollback
 
