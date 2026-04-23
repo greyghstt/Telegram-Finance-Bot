@@ -203,6 +203,26 @@ describe("database", () => {
     assert.equal(foodProgress.status, "ok");
   });
 
+  it("supports global weekly budgets", async () => {
+    const database = await createTestDatabase();
+    const parsed = parseInput("-90k makan\n-10k parkir");
+
+    await saveTransactions(database, parsed.transactions);
+    await saveBudget(database, {
+      chatId: 123,
+      category: "global",
+      monthlyLimit: 120000,
+      period: "weekly",
+    });
+
+    const progress = await getBudgetProgress(database, 123, { period: "weekly" });
+
+    assert.equal(progress[0].category, "global");
+    assert.equal(progress[0].spent, 100000);
+    assert.equal(progress[0].percent, 83);
+    assert.equal(progress[0].status, "warning");
+  });
+
   it("deletes and clears budgets", async () => {
     const database = await createTestDatabase();
 

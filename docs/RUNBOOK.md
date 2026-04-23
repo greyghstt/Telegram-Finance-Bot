@@ -158,6 +158,31 @@ Check that:
 - `undo` restores only the latest deleted transaction for the same chat.
 - Summary, search, history, and category reports ignore `deleted_at` rows.
 
+## Backup And Import Checks
+
+Check that:
+
+- `npm.cmd run backup:csv` writes a timestamped file under `backups/`.
+- `npm.cmd run import:csv -- <file>` stays in dry-run mode by default.
+- `npm.cmd run import:csv -- <file> --apply` only runs after the dry run looks
+  correct.
+- `GET /backup/csv` and `POST /import/csv` require `ADMIN_API_TOKEN`.
+- CSV import accepts the repo export format and rejects missing required
+  headers.
+
+For imports, prefer dry run first so accidental duplicate financial rows are
+caught before writing data.
+
+## Budget Checks
+
+Check that:
+
+- `budget food 700k` still means monthly.
+- `budget minggu global 120k` and `cek budget minggu` use the current week.
+- `budget tahun transport 6jt` uses the current year.
+- `global` budget compares against total expenses for that period, not one
+  category only.
+
 ## Vercel AI Environment
 
 Required AI variables for both Preview and Production:

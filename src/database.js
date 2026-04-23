@@ -107,7 +107,7 @@ export async function initializeDatabase(database) {
         id bigint generated always as identity primary key,
         chat_id text not null,
         category text not null,
-        period text not null default 'monthly' check (period in ('monthly')),
+        period text not null default 'monthly' check (period in ('weekly', 'monthly', 'yearly')),
         monthly_limit integer not null check (monthly_limit > 0),
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now(),
@@ -202,7 +202,7 @@ export async function initializeDatabase(database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
       category TEXT NOT NULL,
-      period TEXT NOT NULL DEFAULT 'monthly' CHECK (period IN ('monthly')),
+      period TEXT NOT NULL DEFAULT 'monthly' CHECK (period IN ('weekly', 'monthly', 'yearly')),
       monthly_limit INTEGER NOT NULL CHECK (monthly_limit > 0),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -556,7 +556,7 @@ export async function saveBudget(database, { chatId, category, monthlyLimit, per
   const cleanCategory = normalizeCategory(category);
   const limit = Number.parseInt(monthlyLimit, 10);
 
-  if (!cleanCategory || !Number.isSafeInteger(limit) || limit <= 0 || period !== "monthly") {
+  if (!cleanCategory || !Number.isSafeInteger(limit) || limit <= 0 || !isValidBudgetPeriod(period)) {
     throw new Error("Budget tidak valid.");
   }
 
@@ -587,6 +587,10 @@ export async function saveBudget(database, { chatId, category, monthlyLimit, per
 export async function listBudgets(database, chatId, { period = "monthly" } = {}) {
   const cleanChatId = normalizeChatId(chatId);
 
+  if (!isValidBudgetPeriod(period)) {
+    return [];
+  }
+
   if (database.kind === "postgres") {
     const rows = await database.client`
       select *
@@ -612,7 +616,7 @@ export async function deleteBudget(database, chatId, category, { period = "month
   const cleanChatId = normalizeChatId(chatId);
   const cleanCategory = normalizeCategory(category);
 
-  if (!cleanCategory) {
+  if (!cleanCategory || !isValidBudgetPeriod(period)) {
     return null;
   }
 
@@ -639,6 +643,10 @@ export async function deleteBudget(database, chatId, category, { period = "month
 export async function clearBudgets(database, chatId, { period = "monthly" } = {}) {
   const cleanChatId = normalizeChatId(chatId);
 
+  if (!isValidBudgetPeriod(period)) {
+    return { deletedCount: 0 };
+  }
+
   if (database.kind === "postgres") {
     const rows = await database.client`
       delete from public.budgets
@@ -660,10 +668,11 @@ export async function clearBudgets(database, chatId, { period = "monthly" } = {}
 export async function getBudgetProgress(database, chatId, { from, to, period = "monthly" } = {}) {
   const budgets = await listBudgets(database, chatId, { period });
   const categories = await getCategorySummary(database, { from, to, limit: 20 });
+  const summary = await getSummary(database, { from, to });
 
   return budgets.map((budget) => {
     const category = categories.find((item) => item.category === budget.category);
-    const spent = category?.totalExpense ?? 0;
+    const spent = budget.category === "global" ? summary.totalExpense : (category?.totalExpense ?? 0);
     const percent = budget.monthlyLimit > 0 ? Math.round((spent / budget.monthlyLimit) * 100) : 0;
 
     return {
@@ -1298,6 +1307,7 @@ function mapBudgetRow(row) {
     category: row.category,
     period: row.period,
     monthlyLimit: Number(row.monthly_limit),
+    limitAmount: Number(row.monthly_limit),
     createdAt: normalizeTimestamp(row.created_at),
     updatedAt: normalizeTimestamp(row.updated_at),
   };
@@ -1456,6 +1466,10 @@ function normalizeChatId(value) {
 
 function normalizeCategory(value) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+}
+
+function isValidBudgetPeriod(value) {
+  return ["weekly", "monthly", "yearly"].includes(String(value ?? "").trim());
 }
 
 function normalizeAlias(value) {

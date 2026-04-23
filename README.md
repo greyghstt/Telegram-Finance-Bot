@@ -32,6 +32,8 @@ Main features:
   extraction through SumoPod with compact plain-text replies and manual
   fallbacks.
 - Monthly budgets per Telegram chat.
+- CSV backup and CSV import tooling with dry-run support.
+- Global and multi-period budgets: weekly, monthly, and yearly.
 - Export CSV as a Telegram document.
 - Reset all transactions with `YA RESET` confirmation.
 - Telegram webhook protected by `TELEGRAM_WEBHOOK_SECRET`.
@@ -238,6 +240,9 @@ tanya bulan ini boros di mana?
 budget
 cek budget
 budget food 700k
+budget minggu global 120k
+cek budget minggu
+budget tahun food 12jt
 saran budget
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
@@ -291,14 +296,40 @@ Budget commands:
 budget
 cek budget
 budget food 700k
+budget global 3jt
+budget minggu global 120k
+budget bulan food 700k
+budget tahun transport 6jt
+cek budget minggu
+cek budget tahun
 budget transport 300k
 hapus budget food
 reset budget
 saran budget
 ```
 
-Budgets are monthly and stored per Telegram chat. Resetting all budgets from
-Telegram requires `YA RESET BUDGET` confirmation.
+Budgets are stored per Telegram chat and support `minggu`, `bulan`, and
+`tahun`. `budget food 700k` still means monthly by default. Use `global` to
+limit the total expense across all categories for a period. Resetting all
+budgets from Telegram requires `YA RESET BUDGET` confirmation.
+
+CSV backup and import:
+
+```powershell
+npm.cmd run backup:csv
+npm.cmd run import:csv -- .\backups\telegram-finance-bot-2026-04-23T11-10-00.000Z.csv
+npm.cmd run import:csv -- .\backups\telegram-finance-bot-2026-04-23T11-10-00.000Z.csv --apply
+```
+
+The import script runs as a dry run by default and only writes when `--apply`
+is passed. Admin endpoints also support:
+
+```text
+GET /backup/csv
+POST /import/csv
+```
+
+`POST /import/csv` expects JSON with `csv` and optional `dryRun`.
 
 Natural input:
 
@@ -358,6 +389,7 @@ Before deploying:
 ```powershell
 npm.cmd test
 npm.cmd run test:local-chat
+npm.cmd run backup:csv
 ```
 
 If category storage changes are not applied yet, apply the latest Supabase
@@ -368,6 +400,7 @@ Phase 1 transaction changes also require:
 
 ```text
 supabase/migrations/20260423143000_add_transaction_soft_delete.sql
+supabase/migrations/20260423153000_expand_budget_periods.sql
 ```
 
 Set AI env vars for Preview and Production before deploying AI features:

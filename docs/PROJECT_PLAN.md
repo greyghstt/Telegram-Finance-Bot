@@ -143,6 +143,8 @@ Free-form user text
 33. Improved ambiguous AI transaction clarification flow.
 34. Edit transaction by ID.
 35. Soft delete and undo for the latest deletion.
+36. CSV backup and CSV import with dry-run support.
+37. Global and multi-period budgets.
 
 ## Database
 
@@ -232,6 +234,7 @@ supabase/migrations/20260420100000_add_chat_session_pending_action.sql
 supabase/migrations/20260422235000_add_budgets.sql
 supabase/migrations/20260423113000_add_custom_categories.sql
 supabase/migrations/20260423143000_add_transaction_soft_delete.sql
+supabase/migrations/20260423153000_expand_budget_periods.sql
 ```
 
 The migration filenames keep their original names to preserve migration
@@ -276,6 +279,8 @@ kategori baru kopi Kopi
 alias kategori ngopi = kopi
 koreksi kategori 12 food
 edit 12 -20k bensin
+budget minggu global 120k
+cek budget minggu
 cari bensin
 hapus terakhir
 undo
@@ -876,9 +881,7 @@ Current non-AI backlog:
 
 1. Add performance instrumentation and response-time logging.
 2. Add GitHub Actions CI for automated tests and secret scanning on every push.
-3. Add automatic backup/export, for example a scheduled CSV export or a
-   documented Supabase backup routine.
-4. Add an automatic monthly report from the bot.
+3. Add an automatic monthly report from the bot.
 
 AI backlog:
 
@@ -888,6 +891,5 @@ AI backlog:
 
 Optional future improvements:
 
-- Import CSV backup.
 - Better category analytics.
 - Optional English bot mode in the future.
