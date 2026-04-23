@@ -89,6 +89,44 @@ describe("telegram service", () => {
     assert.match(readJsonBody(replies.at(-1)).text, /Tersimpan: 1 transaksi/);
   });
 
+  it("keeps unsigned note-first and wallet-oriented input working in mode flow", async () => {
+    const database = await createTestDatabase();
+    const replies = [];
+    const allowedChatIds = new Set(["123456789"]);
+    mockTelegramFetch(replies);
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("/pengeluaran"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("beli bensin 20k dompet cash"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("/pemasukan"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("topup gopay 100k"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    assert.match(readJsonBody(replies.at(-1)).text, /Tersimpan: 1 transaksi/);
+    assert.equal((await getChatSession(database, 123456789)).pendingInputMode, null);
+  });
+
   it("requires explicit confirmation before resetting budgets", async () => {
     const database = await createTestDatabase();
     const replies = [];

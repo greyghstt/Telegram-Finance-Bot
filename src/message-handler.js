@@ -109,17 +109,24 @@ export async function handleMessage(database, message, options = {}) {
 }
 
 async function handleMessageCore(database, message, options = {}) {
-  const variableCommand = parseVariableCommand(message);
+  const normalizedMessage = normalizeDeterministicInput(message, options);
+
+  const variableCommand = parseVariableCommand(normalizedMessage);
   if (variableCommand) {
     return handleVariableCommand(database, variableCommand, options);
   }
 
-  const parsed = parseInput(message, {
+  const parsed = parseInput(normalizedMessage, {
     defaultType: options.defaultTransactionType,
   });
 
   if (!parsed.ok) {
-    const extracted = await tryHandleNaturalTransaction(database, message, parsed, options);
+    const guidance = buildDeterministicIntentGuidance(normalizedMessage, parsed, options);
+    if (guidance) {
+      return guidance;
+    }
+
+    const extracted = await tryHandleNaturalTransaction(database, normalizedMessage, parsed, options);
     if (extracted) {
       return extracted;
     }
@@ -1608,9 +1615,109 @@ function shouldTryNaturalTransaction(parsed, message, options) {
     return false;
   }
 
+  if (looksLikeWalletIntent(text) || looksLikeTransferIntent(text)) {
+    return false;
+  }
+
   return parsed.error.includes("Tipe transaksi belum jelas")
     || parsed.error.includes("diawali tanda")
     || parsed.error.includes("Format pesan belum dikenali");
+}
+
+function normalizeDeterministicInput(message, options = {}) {
+  const text = String(message ?? "").trim();
+  if (!text || text.startsWith("/")) {
+    return text;
+  }
+
+  const walletIncome = parseWalletIncomeIntent(text, options.defaultTransactionType);
+  if (walletIncome) {
+    return walletIncome;
+  }
+
+  return text;
+}
+
+function parseWalletIncomeIntent(text, defaultTransactionType) {
+  const explicitType = defaultTransactionType === "income" ? "+" : null;
+  const prefix = explicitType ?? "+";
+
+  const walletLastPatterns = [
+    /^(?:setor(?:kan)?|top\s*up|topup|isi saldo|saldo awal)\s+(.+?)\s+ke\s+([a-zA-Z0-9_-]{2,32})$/i,
+    /^(.+?)\s+masuk\s+ke\s+([a-zA-Z0-9_-]{2,32})$/i,
+  ];
+
+  for (const pattern of walletLastPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return `${prefix}${match[1].trim()} dompet ${match[2].trim()}`;
+    }
+  }
+
+  const walletFirstPatterns = [
+    /^(?:setor(?:kan)?|top\s*up|topup|isi saldo|saldo awal)\s+([a-zA-Z0-9_-]{2,32})\s+(.+)$/i,
+    /^masuk\s+ke\s+([a-zA-Z0-9_-]{2,32})\s+(.+)$/i,
+  ];
+
+  for (const pattern of walletFirstPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return `${prefix}${match[2].trim()} dompet ${match[1].trim()}`;
+    }
+  }
+
+  return null;
+}
+
+function looksLikeWalletIntent(text) {
+  return /\b(?:dompet|wallet|akun|saldo dompet|top\s*up|topup|isi saldo|saldo awal|setor(?:kan)?|masuk ke)\b/i.test(text);
+}
+
+function looksLikeTransferIntent(text) {
+  return /\b(?:transfer|riwayat transfer|pindah(?:kan)?|kirim(?:kan)?)\b/i.test(text);
+}
+
+function buildDeterministicIntentGuidance(message, parsed, options = {}) {
+  const text = String(message ?? "").trim();
+  if (!text) {
+    return null;
+  }
+
+  if (looksLikeTransferIntent(text)) {
+    return {
+      ok: false,
+      kind: "error",
+      parsed,
+      reply: [
+        "Format transfer belum lengkap.",
+        "",
+        "Contoh yang didukung:",
+        "transfer bca cash 50k",
+        "transfer dari bca ke cash 50k",
+        "pindah 50k dari bca ke cash",
+      ].join("\n"),
+    };
+  }
+
+  if (looksLikeWalletIntent(text) && options.defaultTransactionType !== "expense") {
+    return {
+      ok: false,
+      kind: "error",
+      parsed,
+      reply: [
+        "Format dompet belum lengkap.",
+        "",
+        "Contoh yang didukung:",
+        "dompet tambah cash",
+        "dompet",
+        "topup gopay 100k",
+        "isi saldo 100k ke dana",
+        "masuk ke bca 500k gaji",
+      ].join("\n"),
+    };
+  }
+
+  return null;
 }
 
 async function validateAiTransactionCandidates(database, candidates, original, options) {
@@ -2167,8 +2274,11 @@ function buildHelpResponse() {
       "cek budget minggu",
       "saran budget",
       "dompet tambah cash",
+      "saldo dompet",
+      "topup gopay 100k",
       "dompet",
       "transfer bca cash 50k",
+      "transfer dari bca ke cash 50k",
       "transaksi rutin tambah bulanan -500k kos kategori housing",
       "transaksi rutin",
       "tagihan tambah wifi 250k tiap 15 kategori bills",
@@ -2190,17 +2300,45 @@ function buildHelpResponse() {
 function parseVariableCommand(message) {
   const text = String(message ?? "").trim();
 
-  const walletSaveMatch = text.match(/^\/?(?:dompet tambah|wallet add|akun tambah)\s+([a-zA-Z0-9_-]{2,32})$/i);
+  const walletSaveMatch = text.match(
+    /^\/?(?:(?:dompet|wallet|akun)\s+(?:tambah|buat|bikin|baru)|(?:tambah|buat|bikin)\s+(?:dompet|wallet|akun)|wallet add)\s+([a-zA-Z0-9_-]{2,32})$/i,
+  );
   if (walletSaveMatch) {
     return { command: "wallet_save", name: walletSaveMatch[1].trim() };
   }
 
-  if (/^\/?(?:dompet|cek dompet|wallet|akun)$/i.test(text)) {
+  if (/^\/?(?:dompet|cek dompet|lihat dompet|list dompet|daftar dompet|saldo dompet|wallet|wallet saya|akun|daftar akun)$/i.test(text)) {
     return { command: "wallet_list" };
   }
 
-  const transferMatch = text.match(/^\/?transfer\s+([a-zA-Z0-9_-]{2,32})\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+)(?:\s+(.{2,80}))?$/i);
+  const transferMatch =
+    text.match(/^\/?transfer\s+(?:dari\s+)?([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+)(?:\s+(.{2,80}))?$/i)
+    ?? text.match(/^\/?(?:pindah(?:kan)?|kirim(?:kan)?)\s+([^\s]+)\s+dari\s+([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})(?:\s+(.{2,80}))?$/i);
+    
+  const compactTransferMatch = /\bke\b/i.test(text)
+    ? null
+    : text.match(/^\/?transfer\s+([a-zA-Z0-9_-]{2,32})\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+)(?:\s+(.{2,80}))?$/i);
+  if (!transferMatch && compactTransferMatch) {
+    return {
+      command: "transfer_save",
+      fromWallet: compactTransferMatch[1].trim(),
+      toWallet: compactTransferMatch[2].trim(),
+      amountText: compactTransferMatch[3].trim(),
+      note: compactTransferMatch[4]?.trim() ?? "",
+    };
+  }
+
   if (transferMatch) {
+    if (/^(?:pindah(?:kan)?|kirim(?:kan)?)\b/i.test(text)) {
+      return {
+        command: "transfer_save",
+        fromWallet: transferMatch[2].trim(),
+        toWallet: transferMatch[3].trim(),
+        amountText: transferMatch[1].trim(),
+        note: transferMatch[4]?.trim() ?? "",
+      };
+    }
+
     return {
       command: "transfer_save",
       fromWallet: transferMatch[1].trim(),

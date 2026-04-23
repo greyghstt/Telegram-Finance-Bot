@@ -80,6 +80,12 @@ saran budget
 dompet tambah cash
 dompet tambah bca
 transfer bca cash 50k tarik tunai
+transfer dari bca ke cash 50k tarik tunai
+pindah 30k dari cash ke bca
+topup gopay 100k
+isi saldo 150k ke dana
+saldo awal cash 200k
+masuk ke bca 500k gaji
 dompet
 transaksi rutin tambah bulanan -500k kos kategori housing
 transaksi rutin
@@ -98,7 +104,9 @@ help
 
 The current local scenario still covers explicit `+` and `-` input for
 backward compatibility. The target input direction is to make signs optional
-when the user has selected `/pemasukan` or `/pengeluaran`.
+when the user has selected `/pemasukan` or `/pengeluaran`. The deterministic
+parser now also accepts note-first mode inputs such as `beli bensin 20k` and
+wallet-oriented income phrases such as `topup gopay 100k` before considering AI.
 
 It uses a temporary database:
 
@@ -295,6 +303,10 @@ Expected behavior:
 - wallet-tagged transactions such as `-20k bensin dompet cash` change wallet
   balances and still count as normal expenses
 - transfers move value between wallets only and do not change balance summary
+- `transfer dari bca ke cash 50k` and `pindah 30k dari cash ke bca` resolve to
+  the same deterministic transfer flow as `transfer bca cash 50k`
+- `topup gopay 100k`, `isi saldo 150k ke dana`, and `masuk ke bca 500k gaji`
+  are treated as income transactions with wallet metadata
 - recurring rules are stored safely and need an explicit processor run
 - due bill checks such as `tagihan hari ini` only show reminders for the active
   Telegram chat
@@ -311,6 +323,9 @@ Invoke-RestMethod `
 
 With AI disabled or unavailable, this falls back to manual format guidance.
 With AI enabled, candidates are saved only after app-side validation.
+Wallet and transfer phrases should not use AI when the deterministic grammar is
+already sufficient. Incomplete wallet or transfer messages should return a
+format hint instead of an AI validation error.
 
 ### Performance Checks
 
