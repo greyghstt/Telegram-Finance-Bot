@@ -390,6 +390,33 @@ Invoke-RestMethod `
 - Project plan: [docs/PROJECT_PLAN.md](./docs/PROJECT_PLAN.md).
 - Local testing guide: [docs/LOCAL_TESTING.md](./docs/LOCAL_TESTING.md).
 
+## Next Development Direction
+
+The next recommended phase is **AI-first performance and flexible input
+upgrade**.
+
+Goals:
+
+- Keep AI involvement high, but make responses feel faster.
+- Split AI behavior into quick extraction and deeper analysis paths.
+- Stop requiring `+` and `-` in normal transaction input.
+- Keep `+` and `-` as backward-compatible shortcuts.
+- Improve category detection with AI while keeping app-side validation.
+- Add custom category and alias support after AI category suggestions are
+  stable.
+
+Recommended priority:
+
+1. Measure response speed for manual input, mode input, natural AI input,
+   `/insight`, `tanya`, and budget commands.
+2. Add AI latency instrumentation without logging secrets or private data.
+3. Introduce quick AI and deep AI profiles.
+4. Optimize prompts and payload sizes.
+5. Make unsigned input the primary documented flow.
+6. Add AI category suggestion with normalization to existing categories.
+7. Add custom categories and category aliases.
+8. Add learning from user category corrections.
+
 ## License
 
 MIT. See [LICENSE](./LICENSE).

@@ -185,6 +185,41 @@ Invoke-RestMethod `
 With AI disabled or unavailable, this falls back to manual format guidance.
 With AI enabled, candidates are saved only after app-side validation.
 
+### Future Performance Tests
+
+The next optimization phase should add a repeatable way to compare response
+time across:
+
+- mode input without signs
+- natural AI input
+- `insight`
+- `tanya bulan ini boros di mana?`
+- `cek budget`
+- `saran budget`
+
+The goal is to keep AI involved while making each AI path more focused.
+Quick AI paths should return compact JSON. Deep AI paths may return richer
+plain-text explanations.
+
+### Future Category Tests
+
+AI category suggestions should be tested with examples such as:
+
+```text
+ayam geprek dekat kampus
+praktikum elektronika
+oli motor
+bayar kos
+```
+
+Expected behavior:
+
+- map obvious inputs to existing categories
+- reject or clarify ambiguous categories
+- keep reports using friendly category labels
+- never create new categories silently unless custom category support is
+  intentionally implemented
+
 ### Delete Latest Transaction
 
 ```powershell

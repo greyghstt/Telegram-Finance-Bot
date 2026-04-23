@@ -89,6 +89,45 @@ the output still looks malformed, check the prompt in `src/ai-service.js` and
 the reply builders in `src/message-handler.js` before changing Telegram
 `parse_mode`.
 
+## Check AI Performance
+
+The next optimization phase should keep AI involvement high while making the
+bot feel faster. When investigating slow replies, separate these timings:
+
+- database query time
+- AI request time
+- formatting/reply time
+- total Telegram response time
+
+Healthy direction:
+
+- normal deterministic commands should stay fast
+- quick AI extraction should use compact prompts and small JSON output
+- deep AI analysis may take longer but should still return within the configured
+  timeout
+- repeated insight-style requests may be cached later if the data has not
+  changed
+
+Do not fix slow responses by simply removing AI from the product direction.
+Prefer prompt compaction, smaller AI payloads, profile-specific timeouts, and
+better fallback behavior.
+
+Future optimization may introduce separate quick/deep AI settings. Document new
+variables before deploying them.
+
+## Category Quality Checks
+
+Future category improvements should use AI suggestions with app-side
+normalization.
+
+Check that:
+
+- AI category suggestions map to known categories when possible.
+- Unknown category suggestions do not create messy production data silently.
+- User corrections can later become aliases or category rules.
+- Reports display friendly category labels, not raw technical labels, whenever
+  possible.
+
 ## Vercel AI Environment
 
 Required AI variables for both Preview and Production:
