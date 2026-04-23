@@ -31,9 +31,12 @@ import {
   saveTransfer,
   saveTransaction,
   saveTransactions,
+  saveWalletBalanceEntry,
   saveWallet,
   searchTransactions,
+  setDefaultWallet,
   setChatSessionPendingAction,
+  listWalletBalanceEntries,
   updateTransactionCategory,
   updateTransactionById,
   shouldInitializeDatabaseAtRuntime,
@@ -301,6 +304,24 @@ describe("database", () => {
     assert.equal((await listTransfers(database, 123)).length, 1);
     assert.equal(wallets.find((item) => item.name === "bca").balance, 400000);
     assert.equal(wallets.find((item) => item.name === "cash").balance, 50000);
+  });
+
+  it("stores wallet balance entries and default wallet", async () => {
+    const database = await createTestDatabase();
+
+    await saveWallet(database, { chatId: 123, name: "bank" });
+    await setDefaultWallet(database, 123, "bank");
+    await saveWalletBalanceEntry(database, { chatId: 123, wallet: "bank", action: "set", amount: 70000 });
+    await saveWalletBalanceEntry(database, { chatId: 123, wallet: "bank", action: "adjust", amount: 5000 });
+
+    const entries = await listWalletBalanceEntries(database, 123, { wallet: "bank" });
+    const session = await getChatSession(database, 123);
+    const wallets = await getWalletBalances(database, 123);
+
+    assert.equal(session.defaultWallet, "bank");
+    assert.equal(entries.length, 2);
+    assert.equal(entries[0].action, "adjust");
+    assert.equal(wallets.find((item) => item.name === "bank").balance, 75000);
   });
 
   it("stores recurring rules and bill reminders", async () => {
