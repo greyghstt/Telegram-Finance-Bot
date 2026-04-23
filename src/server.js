@@ -18,9 +18,23 @@ import { requireAdmin } from "./security.js";
 const app = express();
 const port = process.env.PORT || 3000;
 const database = openDatabase(process.env.DATABASE_PATH);
-const databaseReady = shouldInitializeDatabaseAtRuntime()
-  ? initializeDatabase(database)
-  : Promise.resolve();
+let databaseReadyPromise = null;
+
+async function ensureDatabaseReady() {
+  if (!shouldInitializeDatabaseAtRuntime()) {
+    return;
+  }
+
+  if (!databaseReadyPromise) {
+    databaseReadyPromise = initializeDatabase(database).catch((error) => {
+      databaseReadyPromise = null;
+      console.error("Database runtime init error:", error?.code ?? error?.message ?? error);
+      throw error;
+    });
+  }
+
+  await databaseReadyPromise;
+}
 
 app.use(express.json());
 
@@ -57,7 +71,7 @@ app.get("/health", async (req, res) => {
 });
 
 app.get("/database/status", requireAdmin, async (req, res) => {
-  await databaseReady;
+  await ensureDatabaseReady();
   res.json(await getDatabaseStatus(database));
 });
 
@@ -70,7 +84,7 @@ app.post("/simulate", requireAdmin, (req, res) => {
 });
 
 app.post("/messages", requireAdmin, async (req, res) => {
-  await databaseReady;
+  await ensureDatabaseReady();
   const result = await handleMessage(database, req.body?.message);
   const statusCode = result.ok ? 200 : 400;
 
@@ -78,7 +92,7 @@ app.post("/messages", requireAdmin, async (req, res) => {
 });
 
 app.post("/transactions", requireAdmin, async (req, res) => {
-  await databaseReady;
+  await ensureDatabaseReady();
   const message = req.body?.message;
   const parsed = parseInput(message);
 
@@ -111,7 +125,7 @@ app.post("/transactions", requireAdmin, async (req, res) => {
 });
 
 app.get("/transactions", requireAdmin, async (req, res) => {
-  await databaseReady;
+  await ensureDatabaseReady();
   res.json({
     ok: true,
     transactions: await listTransactions(database, {
@@ -122,7 +136,7 @@ app.get("/transactions", requireAdmin, async (req, res) => {
 });
 
 app.get("/summary", requireAdmin, async (req, res) => {
-  await databaseReady;
+  await ensureDatabaseReady();
   res.json({
     ok: true,
     summary: await getSummary(database),
@@ -130,7 +144,7 @@ app.get("/summary", requireAdmin, async (req, res) => {
 });
 
 app.delete("/transactions/last", requireAdmin, async (req, res) => {
-  await databaseReady;
+  await ensureDatabaseReady();
   const deleted = await deleteLastTransaction(database);
 
   if (!deleted) {
@@ -154,7 +168,7 @@ app.listen(port, () => {
 });
 
 app.get("/backup/csv", requireAdmin, async (req, res) => {
-  await databaseReady;
+  await ensureDatabaseReady();
   const exported = await exportTransactionsToCsv(database, { limit: req.query.limit ?? 10000 });
   const filename = `telegram-finance-bot-backup-${new Date().toISOString().slice(0, 10)}.csv`;
   res.setHeader("content-type", "text/csv; charset=utf-8");
@@ -163,9 +177,10 @@ app.get("/backup/csv", requireAdmin, async (req, res) => {
 });
 
 app.post("/import/csv", requireAdmin, async (req, res) => {
-  await databaseReady;
+  await ensureDatabaseReady();
   const result = await importTransactionsFromCsv(database, req.body?.csv ?? "", {
     dryRun: req.body?.dryRun !== false,
   });
   res.status(result.ok ? 200 : 400).json(result);
 });
+

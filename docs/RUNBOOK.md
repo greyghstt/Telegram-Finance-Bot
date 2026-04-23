@@ -67,6 +67,9 @@ Fix applied:
 - runtime Postgres initialization now runs whenever `DATABASE_URL` is present,
   including on Vercel, so additive schema changes are healed with idempotent
   `create table if not exists` and `add column if not exists` steps.
+- runtime database init is now lazy per request path and retries after failure,
+  so a transient Postgres `CONNECT_TIMEOUT` during cold start does not create an
+  unhandled rejection that kills the webhook function before the next request.
 
 ## Check Vercel Logs
 
@@ -352,3 +355,5 @@ npm.cmd run setup:webhook
 ```powershell
 npm.cmd run check:production
 ```
+
+

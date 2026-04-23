@@ -9,9 +9,23 @@ import { parseAllowedChatIds, processTelegramUpdate } from "../../src/telegram-s
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const allowedChatIds = parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
 const database = openDatabase();
-const databaseReady = shouldInitializeDatabaseAtRuntime()
-  ? initializeDatabase(database)
-  : Promise.resolve();
+let databaseReadyPromise = null;
+
+async function ensureDatabaseReady() {
+  if (!shouldInitializeDatabaseAtRuntime()) {
+    return;
+  }
+
+  if (!databaseReadyPromise) {
+    databaseReadyPromise = initializeDatabase(database).catch((error) => {
+      databaseReadyPromise = null;
+      console.error("Database runtime init error:", error?.code ?? error?.message ?? error);
+      throw error;
+    });
+  }
+
+  await databaseReadyPromise;
+}
 
 export default async function handler(req, res) {
   if (req.method === "GET") {
@@ -36,7 +50,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    await databaseReady;
+    await ensureDatabaseReady();
     const update = parseRequestBody(req.body);
     await processTelegramUpdate({ database, update, token, allowedChatIds });
     res.status(200).json({ ok: true });
@@ -57,3 +71,4 @@ function parseRequestBody(body) {
 
   return body;
 }
+
