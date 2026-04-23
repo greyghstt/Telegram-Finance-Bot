@@ -132,6 +132,7 @@ npm.cmd run telegram
 ```powershell
 npm.cmd test
 npm.cmd run test:local-chat
+npm.cmd run scan:secrets
 ```
 
 Production check:
@@ -141,6 +142,9 @@ npm.cmd run check:production
 ```
 
 Operational notes are in [docs/RUNBOOK.md](./docs/RUNBOOK.md).
+
+GitHub Actions runs `npm ci`, `npm test`, `npm run test:local-chat`, and
+`npm run scan:secrets` on pushes to `main` and on pull requests.
 
 ## Transaction Format
 

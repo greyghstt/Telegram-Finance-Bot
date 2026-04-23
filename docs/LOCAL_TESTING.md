@@ -13,6 +13,7 @@ Run:
 
 ```powershell
 npm.cmd test
+npm.cmd run scan:secrets
 ```
 
 Covered areas:
@@ -40,6 +41,7 @@ Covered areas:
 - Chat ID access control.
 
 The final test output should show all tests as passing.
+The secret scan should end with `Secret scan clean.`.
 
 ## 2. Local Chat Scenario
 

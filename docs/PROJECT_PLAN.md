@@ -151,6 +151,7 @@ Free-form user text
 41. AI weekly report command and processor.
 42. AI monthly review command and processor.
 43. AI anomaly detection with app-calculated candidates.
+44. GitHub Actions CI with automated test and secret-scan checks.
 
 ## Database
 
@@ -378,6 +379,14 @@ Automation notes:
 - `scripts/process-anomalies.js` runs the anomaly summary flow.
 - All three flows compute the key numbers in app code first, then ask AI only
   to explain the compact payload.
+
+CI notes:
+
+- `.github/workflows/ci.yml` runs on `main` and pull requests.
+- The workflow runs `npm ci`, `npm test`, `npm run test:local-chat`, and
+  `npm run scan:secrets`.
+- Secret scanning uses `scripts/secret-scan.js` and never stores real secrets
+  in the workflow.
 - `/batal` clears pending input mode or reset confirmation.
 
 ## Security Checklist
