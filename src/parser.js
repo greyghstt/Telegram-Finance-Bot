@@ -226,7 +226,7 @@ const AMOUNT_PATTERN =
   /(?:^|\s)([+-]?)\s*(?:rp\.?\s*)?(\d+(?:[.,]\d{3})*(?:[.,]\d+)?|\d+)\s*(?:(ribu|rebu|rb|r|k|juta|jt|mio|m)\b)?(?:\s*,-)?/i;
 
 const REQUIRED_SIGN_MESSAGE =
-  "Transaksi harus diawali tanda + untuk pemasukan atau - untuk pengeluaran. Contoh: +500k gaji, -20k bensin.";
+  "Tipe transaksi belum jelas. Pilih /pemasukan atau /pengeluaran, atau pakai tanda cepat + / -.";
 
 export function parseInput(input, options = {}) {
   const message = normalizeWhitespace(input);
