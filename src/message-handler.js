@@ -32,6 +32,16 @@ const TRANSACTION_TIME_FORMATTER = new Intl.DateTimeFormat("id-ID", {
 });
 
 export async function handleMessage(database, message, options = {}) {
+  const metrics = options.metrics ?? createMetrics();
+  const startedAt = nowMs();
+  const result = await handleMessageCore(database, message, { ...options, metrics });
+  metrics.totalMs = elapsedMs(startedAt);
+  const resultWithMetrics = { ...result, metrics: summarizeMetrics(metrics) };
+  logSafePerformance(options, resultWithMetrics);
+  return resultWithMetrics;
+}
+
+async function handleMessageCore(database, message, options = {}) {
   const variableCommand = parseVariableCommand(message);
   if (variableCommand) {
     return handleVariableCommand(database, variableCommand, options);
@@ -72,8 +82,8 @@ export async function handleMessage(database, message, options = {}) {
 
   const transactions =
     parsed.kind === "batch" ? parsed.transactions : [parsed.transaction];
-  const saved = await saveTransactions(database, transactions);
-  const summary = await getSummary(database);
+  const saved = await measureDb(options, "saveTransactions", () => saveTransactions(database, transactions));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database));
 
   return {
     ok: true,
@@ -87,7 +97,7 @@ export async function handleMessage(database, message, options = {}) {
 export async function handleCommand(database, command, options = {}) {
   switch (command) {
     case "balance":
-      return buildBalanceResponse(database);
+      return buildBalanceResponse(database, options);
     case "today_report":
       return buildPeriodResponse(database, "today", options);
     case "week_report":
@@ -97,15 +107,15 @@ export async function handleCommand(database, command, options = {}) {
     case "year_report":
       return buildPeriodResponse(database, "year", options);
     case "history":
-      return buildHistoryResponse(database);
+      return buildHistoryResponse(database, options);
     case "category_report":
-      return buildCategoryReportResponse(database);
+      return buildCategoryReportResponse(database, options);
     case "insight":
       return buildInsightResponse(database, options);
     case "delete_last":
-      return buildDeleteLastResponse(database);
+      return buildDeleteLastResponse(database, options);
     case "export":
-      return buildExportResponse(database);
+      return buildExportResponse(database, options);
     case "reset_data":
       return buildResetInstructionResponse();
     case "help":
@@ -121,11 +131,11 @@ export async function handleCommand(database, command, options = {}) {
 
 async function handleVariableCommand(database, command, options) {
   if (command.command === "delete_by_id") {
-    return buildDeleteByIdResponse(database, command.id);
+    return buildDeleteByIdResponse(database, command.id, options);
   }
 
   if (command.command === "search") {
-    return buildSearchResponse(database, command.query);
+    return buildSearchResponse(database, command.query, options);
   }
 
   if (command.command === "finance_question") {
@@ -193,6 +203,91 @@ export function getPeriodRange(period, now = new Date()) {
   };
 }
 
+async function measureDb(options, operation, callback) {
+  const startedAt = nowMs();
+  try {
+    return await callback();
+  } finally {
+    const metrics = options?.metrics;
+    if (metrics) {
+      metrics.dbMs += elapsedMs(startedAt);
+      metrics.dbQueries += 1;
+      metrics.dbOperations.add(operation);
+    }
+  }
+}
+
+async function measureAi(options, callback) {
+  const startedAt = nowMs();
+  const result = await callback();
+  const elapsed = elapsedMs(startedAt);
+  const metrics = options?.metrics;
+
+  if (metrics) {
+    metrics.aiMs += Number.isFinite(result?.latencyMs) ? result.latencyMs : elapsed;
+    metrics.aiCalls += 1;
+    if (result?.profile) {
+      metrics.aiProfiles.add(result.profile);
+    }
+  }
+
+  return result;
+}
+
+function createMetrics() {
+  return {
+    totalMs: 0,
+    dbMs: 0,
+    dbQueries: 0,
+    dbOperations: new Set(),
+    aiMs: 0,
+    aiCalls: 0,
+    aiProfiles: new Set(),
+  };
+}
+
+function summarizeMetrics(metrics) {
+  return {
+    totalMs: metrics.totalMs,
+    dbMs: metrics.dbMs,
+    dbQueries: metrics.dbQueries,
+    dbOperations: Array.from(metrics.dbOperations).sort(),
+    aiMs: metrics.aiMs,
+    aiCalls: metrics.aiCalls,
+    aiProfiles: Array.from(metrics.aiProfiles).sort(),
+  };
+}
+
+function logSafePerformance(options, result) {
+  const logger = options.logger;
+  if (!logger?.info && typeof logger !== "function") {
+    return;
+  }
+
+  const payload = {
+    event: "message_performance",
+    kind: result.kind,
+    command: result.command ?? null,
+    ok: Boolean(result.ok),
+    metrics: result.metrics,
+  };
+
+  if (typeof logger === "function") {
+    logger(payload);
+    return;
+  }
+
+  logger.info(payload);
+}
+
+function nowMs() {
+  return performance.now();
+}
+
+function elapsedMs(startedAt) {
+  return Math.max(0, Math.round(performance.now() - startedAt));
+}
+
 function buildSavedReply(saved, summary) {
   const title =
     saved.length === 1
@@ -216,8 +311,8 @@ function buildSavedReply(saved, summary) {
   return lines.join("\n");
 }
 
-async function buildBalanceResponse(database) {
-  const summary = await getSummary(database);
+async function buildBalanceResponse(database, options) {
+  const summary = await measureDb(options, "getSummary", () => getSummary(database));
 
   return {
     ok: true,
@@ -237,9 +332,11 @@ async function buildBalanceResponse(database) {
 
 async function buildPeriodResponse(database, period, options) {
   const range = getPeriodRange(period, options.now);
-  const summary = await getSummary(database, range);
-  const categories = await getCategorySummary(database, { ...range, limit: 5 });
-  const recent = await listTransactions(database, { ...range, limit: 5 });
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const categories = await measureDb(options, "getCategorySummary", () =>
+    getCategorySummary(database, { ...range, limit: 5 }));
+  const recent = await measureDb(options, "listTransactions", () =>
+    listTransactions(database, { ...range, limit: 5 }));
   const label = periodLabel(period);
   const lines = [
     `Ringkasan ${label}`,
@@ -279,8 +376,9 @@ async function buildPeriodResponse(database, period, options) {
   };
 }
 
-async function buildHistoryResponse(database) {
-  const transactions = await listTransactions(database, { limit: 10 });
+async function buildHistoryResponse(database, options) {
+  const transactions = await measureDb(options, "listTransactions", () =>
+    listTransactions(database, { limit: 10 }));
   const lines = ["Riwayat transaksi terakhir"];
 
   if (transactions.length === 0) {
@@ -301,8 +399,9 @@ async function buildHistoryResponse(database) {
   };
 }
 
-async function buildCategoryReportResponse(database) {
-  const categories = await getCategorySummary(database, { limit: 10 });
+async function buildCategoryReportResponse(database, options) {
+  const categories = await measureDb(options, "getCategorySummary", () =>
+    getCategorySummary(database, { limit: 10 }));
   const lines = ["Laporan kategori"];
 
   if (categories.length === 0) {
@@ -332,9 +431,9 @@ async function tryHandleNaturalTransaction(database, message, parsed, options) {
   }
 
   const extractor = options.extractTransactionCandidates ?? extractTransactionCandidates;
-  const result = await extractor(message, {
+  const result = await measureAi(options, () => extractor(message, {
     defaultType: options.defaultTransactionType ?? null,
-  });
+  }));
 
   if (!result.ok) {
     return null;
@@ -361,8 +460,9 @@ async function tryHandleNaturalTransaction(database, message, parsed, options) {
     };
   }
 
-  const saved = await saveTransactions(database, validation.transactions);
-  const summary = await getSummary(database);
+  const saved = await measureDb(options, "saveTransactions", () =>
+    saveTransactions(database, validation.transactions));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database));
 
   return {
     ok: true,
@@ -379,9 +479,9 @@ async function tryHandleNaturalTransaction(database, message, parsed, options) {
 }
 
 async function buildInsightResponse(database, options) {
-  const data = await buildInsightData(database);
+  const data = await buildInsightData(database, options);
   const insightGenerator = options.generateFinanceInsight ?? generateFinanceInsight;
-  const aiResult = await insightGenerator(data);
+  const aiResult = await measureAi(options, () => insightGenerator(data));
 
   return {
     ok: true,
@@ -398,7 +498,7 @@ async function buildInsightResponse(database, options) {
 async function buildFinanceQuestionResponse(database, question, options) {
   const data = await buildFinanceQuestionData(database, question, options);
   const answerGenerator = options.answerFinanceQuestion ?? answerFinanceQuestion;
-  const aiResult = await answerGenerator(question, data);
+  const aiResult = await measureAi(options, () => answerGenerator(question, data));
 
   return {
     ok: true,
@@ -438,11 +538,11 @@ async function buildBudgetSetResponse(database, command, options) {
     };
   }
 
-  const budget = await saveBudget(database, {
+  const budget = await measureDb(options, "saveBudget", () => saveBudget(database, {
     chatId: getChatId(options),
     category: command.category,
     monthlyLimit: amount,
-  });
+  }));
   const data = await buildBudgetData(database, options);
 
   return {
@@ -462,7 +562,8 @@ async function buildBudgetSetResponse(database, command, options) {
 }
 
 async function buildBudgetDeleteResponse(database, category, options) {
-  const deleted = await deleteBudget(database, getChatId(options), category);
+  const deleted = await measureDb(options, "deleteBudget", () =>
+    deleteBudget(database, getChatId(options), category));
 
   if (!deleted) {
     return {
@@ -483,7 +584,7 @@ async function buildBudgetDeleteResponse(database, category, options) {
 }
 
 async function buildBudgetResetInstructionResponse(database, options) {
-  const budgets = await listBudgets(database, getChatId(options));
+  const budgets = await measureDb(options, "listBudgets", () => listBudgets(database, getChatId(options)));
 
   return {
     ok: true,
@@ -505,7 +606,7 @@ async function buildBudgetResetInstructionResponse(database, options) {
 async function buildBudgetSuggestionResponse(database, options) {
   const data = await buildBudgetData(database, options);
   const suggestionGenerator = options.generateBudgetSuggestion ?? generateBudgetSuggestion;
-  const aiResult = await suggestionGenerator(data);
+  const aiResult = await measureAi(options, () => suggestionGenerator(data));
 
   return {
     ok: true,
@@ -519,11 +620,13 @@ async function buildBudgetSuggestionResponse(database, options) {
   };
 }
 
-async function buildInsightData(database) {
+async function buildInsightData(database, options = {}) {
   const periodLabel = "semua waktu";
-  const summary = await getSummary(database);
-  const categories = await getCategorySummary(database, { limit: 5 });
-  const recentTransactions = await listTransactions(database, { limit: 5 });
+  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  const categories = await measureDb(options, "getCategorySummary", () =>
+    getCategorySummary(database, { limit: 5 }));
+  const recentTransactions = await measureDb(options, "listTransactions", () =>
+    listTransactions(database, { limit: 5 }));
 
   return {
     periodLabel,
@@ -543,10 +646,13 @@ async function buildFinanceQuestionData(database, question, options) {
   const period = periodFromQuestion(question);
   const range = period ? getPeriodRange(period, options.now) : {};
   const periodLabel = period ? periodLabelForQuestion(period) : "semua waktu";
-  const summary = await getSummary(database, range);
-  const categories = await getCategorySummary(database, { ...range, limit: 8 });
-  const recentTransactions = await listTransactions(database, { ...range, limit: 5 });
-  const periodTransactions = await listTransactions(database, { ...range, limit: 100 });
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const categories = await measureDb(options, "getCategorySummary", () =>
+    getCategorySummary(database, { ...range, limit: 8 }));
+  const recentTransactions = await measureDb(options, "listTransactions", () =>
+    listTransactions(database, { ...range, limit: 5 }));
+  const periodTransactions = await measureDb(options, "listTransactions", () =>
+    listTransactions(database, { ...range, limit: 100 }));
   const matchedTerms = getFinanceQuestionTerms(question, categories);
   const matchingTransactions = filterTransactionsByTerms(periodTransactions, matchedTerms).slice(0, 10);
   const matchingSummary = summarizeTransactions(matchingTransactions);
@@ -565,8 +671,9 @@ async function buildFinanceQuestionData(database, question, options) {
 
 async function buildBudgetData(database, options) {
   const range = getPeriodRange("month", options.now);
-  const summary = await getSummary(database, range);
-  const budgets = await getBudgetProgress(database, getChatId(options), range);
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const budgets = await measureDb(options, "getBudgetProgress", () =>
+    getBudgetProgress(database, getChatId(options), range));
 
   return {
     periodLabel: "bulan ini",
@@ -952,8 +1059,8 @@ function aiFallbackLabel(reason) {
   return "AI sedang tidak bisa dipakai, jadi ini ringkasan manual.";
 }
 
-async function buildDeleteLastResponse(database) {
-  const deleted = await deleteLastTransaction(database);
+async function buildDeleteLastResponse(database, options) {
+  const deleted = await measureDb(options, "deleteLastTransaction", () => deleteLastTransaction(database));
 
   if (!deleted) {
     return {
@@ -964,7 +1071,7 @@ async function buildDeleteLastResponse(database) {
     };
   }
 
-  const summary = await getSummary(database);
+  const summary = await measureDb(options, "getSummary", () => getSummary(database));
 
   return {
     ok: true,
@@ -982,8 +1089,9 @@ async function buildDeleteLastResponse(database) {
   };
 }
 
-async function buildDeleteByIdResponse(database, id) {
-  const deleted = await deleteTransactionById(database, id);
+async function buildDeleteByIdResponse(database, id, options) {
+  const deleted = await measureDb(options, "deleteTransactionById", () =>
+    deleteTransactionById(database, id));
 
   if (!deleted) {
     return {
@@ -994,7 +1102,7 @@ async function buildDeleteByIdResponse(database, id) {
     };
   }
 
-  const summary = await getSummary(database);
+  const summary = await measureDb(options, "getSummary", () => getSummary(database));
 
   return {
     ok: true,
@@ -1012,8 +1120,9 @@ async function buildDeleteByIdResponse(database, id) {
   };
 }
 
-async function buildSearchResponse(database, query) {
-  const transactions = await searchTransactions(database, query, { limit: 10 });
+async function buildSearchResponse(database, query, options) {
+  const transactions = await measureDb(options, "searchTransactions", () =>
+    searchTransactions(database, query, { limit: 10 }));
   const lines = [`Hasil pencarian: ${query}`];
 
   if (transactions.length === 0) {
@@ -1035,8 +1144,9 @@ async function buildSearchResponse(database, query) {
   };
 }
 
-async function buildExportResponse(database) {
-  const transactions = await listTransactions(database, { limit: 100 });
+async function buildExportResponse(database, options) {
+  const transactions = await measureDb(options, "listTransactions", () =>
+    listTransactions(database, { limit: 100 }));
   const generatedAt = new Date().toISOString();
   const header = "id,type,amount,note,category,payment_method,created_at_local,created_at";
   const rows = transactions.map((transaction) =>

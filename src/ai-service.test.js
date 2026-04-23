@@ -86,6 +86,8 @@ describe("ai service", () => {
     assert.equal(calls[0][0].temperature, 0.2);
     assert.equal(calls[0][0].max_tokens, 2500);
     assert.equal(calls[0][1].timeout, 25000);
+    assert.equal(result.profile, "deep");
+    assert.equal(Number.isFinite(result.latencyMs), true);
     assert.match(calls[0][0].messages[0].content, /Bahasa Indonesia/);
     assert.match(calls[0][0].messages[0].content, /Jangan mengarang nominal/);
     assert.doesNotMatch(calls[0][0].messages[1].content, /original/);
@@ -148,6 +150,7 @@ describe("ai service", () => {
     );
 
     assert.equal(result.ok, true);
+    assert.equal(result.profile, "deep");
     assert.equal(result.content, "Bensin bulan ini Rp20.000.");
     assert.match(calls[0][0].messages[0].content, /Angka utama sudah dihitung/);
     assert.match(calls[0][0].messages[0].content, /tanpa Markdown/);
@@ -189,25 +192,30 @@ describe("ai service", () => {
     );
 
     assert.equal(result.ok, true);
+    assert.equal(result.profile, "deep");
     assert.match(calls[0][0].messages[0].content, /progress budget/);
     assert.match(calls[0][0].messages[0].content, /tanpa Markdown/);
     assert.match(calls[0][0].messages[1].content, /"percent":90/);
   });
 
   it("extracts transaction candidates from strict JSON", async () => {
+    const calls = [];
     const client = {
       chat: {
         completions: {
-          create: async () => ({
-            choices: [
-              {
-                message: {
-                  content:
-                    '{"transactions":[{"type":"expense","amount":20000,"note":"bensin","category":"transport","confidence":0.9}]}',
+          create: async (...args) => {
+            calls.push(args);
+            return {
+              choices: [
+                {
+                  message: {
+                    content:
+                      '{"transactions":[{"type":"expense","amount":20000,"note":"bensin","category":"transport","confidence":0.9}]}',
+                  },
                 },
-              },
-            ],
-          }),
+              ],
+            };
+          },
         },
       },
     };
@@ -219,8 +227,12 @@ describe("ai service", () => {
     );
 
     assert.equal(result.ok, true);
+    assert.equal(result.profile, "quick");
     assert.equal(result.candidates.length, 1);
     assert.equal(result.candidates[0].amount, 20000);
+    assert.equal(calls[0][0].max_tokens, 700);
+    assert.equal(calls[0][1].timeout, 12000);
+    assert.match(calls[0][0].messages[0].content, /Balas JSON valid saja/);
   });
 
   it("returns fallback for malformed extraction JSON", async () => {

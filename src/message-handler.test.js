@@ -21,6 +21,24 @@ describe("message handler", () => {
     assert.match(result.reply, /WIB/);
   });
 
+  it("reports safe latency metrics without logging message text", async () => {
+    const database = await createTestDatabase();
+    const logs = [];
+
+    const result = await handleMessage(database, "-20k bensin rahasia", {
+      logger: (payload) => logs.push(payload),
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.metrics.dbQueries, 2);
+    assert.equal(result.metrics.aiCalls, 0);
+    assert.equal(Number.isFinite(result.metrics.totalMs), true);
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0].event, "message_performance");
+    assert.equal(logs[0].kind, "transaction");
+    assert.doesNotMatch(JSON.stringify(logs[0]), /rahasia/);
+  });
+
   it("saves unsigned transactions when input mode provides the type", async () => {
     const database = await createTestDatabase();
 
