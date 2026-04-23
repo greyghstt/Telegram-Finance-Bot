@@ -5,6 +5,7 @@ const productionUrl = stripTrailingSlash(
 );
 
 const checks = [];
+const FETCH_TIMEOUT_MS = 10000;
 
 await checkHttp("health", `${productionUrl}/health`);
 
@@ -46,7 +47,7 @@ async function checkHttp(name, url, options = {}) {
   const startedAt = Date.now();
 
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(url, withTimeout(options));
     const body = await response.text();
     const elapsedMs = Date.now() - startedAt;
 
@@ -68,6 +69,7 @@ async function checkTelegramWebhook() {
   const startedAt = Date.now();
   const response = await fetch(
     `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getWebhookInfo`,
+    { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
   );
   const body = await response.json();
   const result = body.result ?? {};
@@ -84,6 +86,13 @@ async function checkTelegramWebhook() {
       `lastError=${result.last_error_message ?? "null"}`,
     ].join(" "),
   });
+}
+
+function withTimeout(options = {}) {
+  return {
+    ...options,
+    signal: options.signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  };
 }
 
 function summarizeBody(body) {
