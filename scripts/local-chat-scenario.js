@@ -17,6 +17,8 @@ const messages = [
   "hapus 2",
   "hari ini",
   "hapus terakhir",
+  "undo",
+  "edit 3 -30k makan ayam",
   "saldo",
   "insight",
   "tanya bulan ini boros di mana?",
@@ -53,7 +55,7 @@ try {
 
   const finalBalance = results.findLast((result) => result.summary)?.summary?.balance;
 
-  assert.equal(finalBalance, 1953000);
+  assert.equal(finalBalance, 2050000);
   assert.equal(results.every((result) => result.ok), true);
 
   console.log("\nAll local chat scenarios passed.");

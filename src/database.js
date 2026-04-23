@@ -69,6 +69,7 @@ export async function initializeDatabase(database) {
         raw_amount text,
         original text not null,
         confidence real not null default 0,
+        deleted_at timestamptz,
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       )
@@ -81,7 +82,7 @@ export async function initializeDatabase(database) {
         id bigint generated always as identity primary key,
         chat_id text not null unique,
         pending_input_mode text check (pending_input_mode in ('income', 'expense')),
-        pending_action text check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify')),
+        pending_action text check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete')),
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       )
@@ -95,7 +96,11 @@ export async function initializeDatabase(database) {
     await database.client`
       alter table public.chat_sessions
       add constraint chat_sessions_pending_action_check
-      check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify'))
+      check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete'))
+    `;
+    await database.client`
+      alter table public.transactions
+      add column if not exists deleted_at timestamptz
     `;
     await database.client`
       create table if not exists public.budgets (
@@ -166,6 +171,7 @@ export async function initializeDatabase(database) {
       raw_amount TEXT,
       original TEXT NOT NULL,
       confidence REAL NOT NULL DEFAULT 0,
+      deleted_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -183,7 +189,7 @@ export async function initializeDatabase(database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL UNIQUE,
       pending_input_mode TEXT CHECK (pending_input_mode IN ('income', 'expense')),
-      pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify')),
+      pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete')),
       pending_payload TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -243,7 +249,7 @@ export async function initializeDatabase(database) {
   try {
     database.client.exec(`
       ALTER TABLE chat_sessions
-      ADD COLUMN pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify'));
+      ADD COLUMN pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete'));
     `);
   } catch (error) {
     if (!String(error.message).includes("duplicate column name")) {
@@ -258,6 +264,16 @@ export async function initializeDatabase(database) {
       throw error;
     }
   }
+
+  try {
+    database.client.exec("ALTER TABLE transactions ADD COLUMN deleted_at TEXT;");
+  } catch (error) {
+    if (!String(error.message).includes("duplicate column name")) {
+      throw error;
+    }
+  }
+
+  migrateSqliteChatSessionsTable(database);
 }
 
 export async function saveTransaction(database, transaction) {
@@ -364,11 +380,33 @@ export async function saveTransactions(database, transactions) {
 
 export async function getTransactionById(database, id) {
   if (database.kind === "postgres") {
-    const rows = await database.client`select * from public.transactions where id = ${id}`;
+    const rows = await database.client`
+      select *
+      from public.transactions
+      where id = ${id} and deleted_at is null
+    `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
-  const row = database.client.prepare("SELECT * FROM transactions WHERE id = ?").get(id);
+  const row = database.client
+    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL")
+    .get(id);
+  return row ? mapTransactionRow(row) : null;
+}
+
+export async function getDeletedTransactionById(database, id) {
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      select *
+      from public.transactions
+      where id = ${id} and deleted_at is not null
+    `;
+    return rows[0] ? mapTransactionRow(rows[0]) : null;
+  }
+
+  const row = database.client
+    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NOT NULL")
+    .get(id);
   return row ? mapTransactionRow(row) : null;
 }
 
@@ -385,7 +423,8 @@ export async function listTransactions(database, { limit = 20, offset = 0, from,
     .prepare(
       `SELECT *
        FROM transactions
-       ${period.where}
+       WHERE deleted_at IS NULL
+       ${period.where ? `AND ${period.where.slice(6)}` : ""}
        ORDER BY id DESC
        LIMIT ?
        OFFSET ?`,
@@ -408,11 +447,14 @@ export async function searchTransactions(database, query, { limit = 10 } = {}) {
       select *
       from public.transactions
       where
-        note ilike ${pattern}
-        or category ilike ${pattern}
-        or coalesce(payment_method, '') ilike ${pattern}
-        or original ilike ${pattern}
-        or tags_json::text ilike ${pattern}
+        deleted_at is null
+        and (
+          note ilike ${pattern}
+          or category ilike ${pattern}
+          or coalesce(payment_method, '') ilike ${pattern}
+          or original ilike ${pattern}
+          or tags_json::text ilike ${pattern}
+        )
       order by id desc
       limit ${safeLimit}
     `;
@@ -425,11 +467,14 @@ export async function searchTransactions(database, query, { limit = 10 } = {}) {
       `SELECT *
        FROM transactions
        WHERE
-        lower(note) LIKE ?
-        OR lower(category) LIKE ?
-        OR lower(coalesce(payment_method, '')) LIKE ?
-        OR lower(original) LIKE ?
-        OR lower(tags_json) LIKE ?
+        deleted_at IS NULL
+        AND (
+          lower(note) LIKE ?
+          OR lower(category) LIKE ?
+          OR lower(coalesce(payment_method, '')) LIKE ?
+          OR lower(original) LIKE ?
+          OR lower(tags_json) LIKE ?
+        )
        ORDER BY id DESC
        LIMIT ?`,
     )
@@ -446,7 +491,7 @@ export async function getSummary(database, { from, to } = {}) {
         coalesce(sum(case when type = 'expense' then amount else 0 end), 0)::int as total_expense,
         count(*)::int as transaction_count
       from public.transactions
-      ${where}
+      ${appendPostgresClause(database.client, where, database.client`deleted_at is null`)}
     `;
     return mapSummaryRow(rows[0]);
   }
@@ -455,11 +500,12 @@ export async function getSummary(database, { from, to } = {}) {
   const row = database.client
     .prepare(
       `SELECT
-        COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS total_income,
-        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense,
-        COUNT(*) AS transaction_count
+       COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS total_income,
+       COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense,
+       COUNT(*) AS transaction_count
        FROM transactions
-       ${period.where}`,
+       WHERE deleted_at IS NULL
+       ${period.where ? `AND ${period.where.slice(6)}` : ""}`,
     )
     .get(...period.params);
 
@@ -478,7 +524,7 @@ export async function getCategorySummary(database, { from, to, limit = 8 } = {})
         coalesce(sum(case when type = 'expense' then amount else 0 end), 0)::int as total_expense,
         count(*)::int as transaction_count
       from public.transactions
-      ${where}
+      ${appendPostgresClause(database.client, where, database.client`deleted_at is null`)}
       group by category
       order by total_expense desc, total_income desc
       limit ${safeLimit}
@@ -492,10 +538,11 @@ export async function getCategorySummary(database, { from, to, limit = 8 } = {})
       `SELECT
         category,
         COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS total_income,
-        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense,
-        COUNT(*) AS transaction_count
+       COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense,
+       COUNT(*) AS transaction_count
        FROM transactions
-       ${period.where}
+       WHERE deleted_at IS NULL
+       ${period.where ? `AND ${period.where.slice(6)}` : ""}
        GROUP BY category
        ORDER BY total_expense DESC, total_income DESC
        LIMIT ?`,
@@ -755,7 +802,7 @@ export async function updateTransactionCategory(database, id, category) {
     const rows = await database.client`
       update public.transactions
       set category = ${cleanCategory}, updated_at = now()
-      where id = ${transactionId}
+      where id = ${transactionId} and deleted_at is null
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
@@ -763,8 +810,67 @@ export async function updateTransactionCategory(database, id, category) {
 
   const now = new Date().toISOString();
   const result = database.client
-    .prepare("UPDATE transactions SET category = ?, updated_at = ? WHERE id = ?")
+    .prepare("UPDATE transactions SET category = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
     .run(cleanCategory, now, transactionId);
+
+  return result.changes > 0 ? getTransactionById(database, transactionId) : null;
+}
+
+export async function updateTransactionById(database, id, transaction) {
+  const transactionId = Number.parseInt(id, 10);
+
+  if (!Number.isSafeInteger(transactionId) || transactionId <= 0) {
+    return null;
+  }
+
+  const payload = normalizeTransactionInput(transaction);
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      update public.transactions
+      set
+        type = ${payload.type},
+        amount = ${payload.amount},
+        note = ${payload.note},
+        category = ${payload.category},
+        payment_method = ${payload.paymentMethod},
+        date_kind = ${payload.dateKind},
+        date_value = ${payload.dateValue},
+        tags_json = ${database.client.json(payload.tags)},
+        raw_amount = ${payload.rawAmount},
+        original = ${payload.original},
+        confidence = ${payload.confidence},
+        updated_at = now()
+      where id = ${transactionId} and deleted_at is null
+      returning *
+    `;
+    return rows[0] ? mapTransactionRow(rows[0]) : null;
+  }
+
+  const now = new Date().toISOString();
+  const result = database.client
+    .prepare(
+      `UPDATE transactions
+       SET type = ?, amount = ?, note = ?, category = ?, payment_method = ?,
+           date_kind = ?, date_value = ?, tags_json = ?, raw_amount = ?,
+           original = ?, confidence = ?, updated_at = ?
+       WHERE id = ? AND deleted_at IS NULL`,
+    )
+    .run(
+      payload.type,
+      payload.amount,
+      payload.note,
+      payload.category,
+      payload.paymentMethod,
+      payload.dateKind,
+      payload.dateValue,
+      JSON.stringify(payload.tags),
+      payload.rawAmount,
+      payload.original,
+      payload.confidence,
+      now,
+      transactionId,
+    );
 
   return result.changes > 0 ? getTransactionById(database, transactionId) : null;
 }
@@ -772,23 +878,32 @@ export async function updateTransactionCategory(database, id, category) {
 export async function deleteLastTransaction(database) {
   if (database.kind === "postgres") {
     const rows = await database.client`
-      delete from public.transactions
-      where id = (select id from public.transactions order by id desc limit 1)
+      update public.transactions
+      set deleted_at = now(), updated_at = now()
+      where id = (
+        select id from public.transactions
+        where deleted_at is null
+        order by id desc
+        limit 1
+      )
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
   const row = database.client
-    .prepare("SELECT * FROM transactions ORDER BY id DESC LIMIT 1")
+    .prepare("SELECT * FROM transactions WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1")
     .get();
 
   if (!row) {
     return null;
   }
 
-  database.client.prepare("DELETE FROM transactions WHERE id = ?").run(row.id);
-  return mapTransactionRow(row);
+  const now = new Date().toISOString();
+  database.client
+    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ?")
+    .run(now, now, row.id);
+  return getDeletedTransactionById(database, row.id);
 }
 
 export async function deleteTransactionById(database, id) {
@@ -800,29 +915,60 @@ export async function deleteTransactionById(database, id) {
 
   if (database.kind === "postgres") {
     const rows = await database.client`
-      delete from public.transactions
-      where id = ${transactionId}
+      update public.transactions
+      set deleted_at = now(), updated_at = now()
+      where id = ${transactionId} and deleted_at is null
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
   const row = database.client
-    .prepare("SELECT * FROM transactions WHERE id = ?")
+    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL")
     .get(transactionId);
 
   if (!row) {
     return null;
   }
 
-  database.client.prepare("DELETE FROM transactions WHERE id = ?").run(transactionId);
-  return mapTransactionRow(row);
+  const now = new Date().toISOString();
+  database.client
+    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ?")
+    .run(now, now, transactionId);
+  return getDeletedTransactionById(database, transactionId);
+}
+
+export async function restoreTransactionById(database, id) {
+  const transactionId = Number.parseInt(id, 10);
+
+  if (!Number.isSafeInteger(transactionId) || transactionId <= 0) {
+    return null;
+  }
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      update public.transactions
+      set deleted_at = null, updated_at = now()
+      where id = ${transactionId} and deleted_at is not null
+      returning *
+    `;
+    return rows[0] ? mapTransactionRow(rows[0]) : null;
+  }
+
+  const now = new Date().toISOString();
+  const result = database.client
+    .prepare("UPDATE transactions SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL")
+    .run(now, transactionId);
+
+  return result.changes > 0 ? getTransactionById(database, transactionId) : null;
 }
 
 export async function clearAllTransactions(database) {
   if (database.kind === "postgres") {
     const rows = await database.client`
-      delete from public.transactions
+      update public.transactions
+      set deleted_at = now(), updated_at = now()
+      where deleted_at is null
       returning id
     `;
     return {
@@ -830,8 +976,13 @@ export async function clearAllTransactions(database) {
     };
   }
 
-  const row = database.client.prepare("SELECT COUNT(*) AS count FROM transactions").get();
-  database.client.prepare("DELETE FROM transactions").run();
+  const row = database.client
+    .prepare("SELECT COUNT(*) AS count FROM transactions WHERE deleted_at IS NULL")
+    .get();
+  const now = new Date().toISOString();
+  database.client
+    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL")
+    .run(now, now);
 
   return {
     deletedCount: Number(row.count),
@@ -842,7 +993,8 @@ export async function getDatabaseStatus(database) {
   if (database.kind === "postgres") {
     const rows = await database.client`
       select
-        (select count(*)::int from public.transactions) as transactions,
+        (select count(*)::int from public.transactions where deleted_at is null) as transactions,
+        (select count(*)::int from public.transactions where deleted_at is not null) as deleted_transactions,
         (select count(*)::int from public.chat_sessions) as chat_sessions,
         (select count(*)::int from public.budgets) as budgets,
         (select count(*)::int from public.custom_categories) as custom_categories,
@@ -852,6 +1004,7 @@ export async function getDatabaseStatus(database) {
       ok: true,
       kind: "postgres",
       transactions: Number(rows[0].transactions),
+      deletedTransactions: Number(rows[0].deleted_transactions),
       chatSessions: Number(rows[0].chat_sessions),
       budgets: Number(rows[0].budgets),
       customCategories: Number(rows[0].custom_categories),
@@ -863,7 +1016,10 @@ export async function getDatabaseStatus(database) {
     .prepare("SELECT COUNT(*) AS count FROM schema_migrations")
     .get();
   const transactionCount = database.client
-    .prepare("SELECT COUNT(*) AS count FROM transactions")
+    .prepare("SELECT COUNT(*) AS count FROM transactions WHERE deleted_at IS NULL")
+    .get();
+  const deletedTransactionCount = database.client
+    .prepare("SELECT COUNT(*) AS count FROM transactions WHERE deleted_at IS NOT NULL")
     .get();
   const chatSessionCount = database.client
     .prepare("SELECT COUNT(*) AS count FROM chat_sessions")
@@ -883,6 +1039,7 @@ export async function getDatabaseStatus(database) {
     kind: "sqlite",
     migrations: Number(migrationCount.count),
     transactions: Number(transactionCount.count),
+    deletedTransactions: Number(deletedTransactionCount.count),
     chatSessions: Number(chatSessionCount.count),
     budgets: Number(budgetCount.count),
     customCategories: Number(customCategoryCount.count),
@@ -1007,7 +1164,7 @@ function listPostgresTransactions(database, { limit, offset, from, to }) {
   if (from && to) {
     return database.client`
       select * from public.transactions
-      where created_at >= ${from} and created_at < ${to}
+      where deleted_at is null and created_at >= ${from} and created_at < ${to}
       order by id desc
       limit ${limit}
       offset ${offset}
@@ -1017,7 +1174,7 @@ function listPostgresTransactions(database, { limit, offset, from, to }) {
   if (from) {
     return database.client`
       select * from public.transactions
-      where created_at >= ${from}
+      where deleted_at is null and created_at >= ${from}
       order by id desc
       limit ${limit}
       offset ${offset}
@@ -1027,7 +1184,7 @@ function listPostgresTransactions(database, { limit, offset, from, to }) {
   if (to) {
     return database.client`
       select * from public.transactions
-      where created_at < ${to}
+      where deleted_at is null and created_at < ${to}
       order by id desc
       limit ${limit}
       offset ${offset}
@@ -1036,6 +1193,7 @@ function listPostgresTransactions(database, { limit, offset, from, to }) {
 
   return database.client`
     select * from public.transactions
+    where deleted_at is null
     order by id desc
     limit ${limit}
     offset ${offset}
@@ -1056,6 +1214,38 @@ function buildPostgresPeriodWhere(sql, { from, to } = {}) {
   }
 
   return sql``;
+}
+
+function appendPostgresClause(sql, baseClause, extraCondition) {
+  if (!baseClause || String(baseClause).trim() === "") {
+    return sql`where ${extraCondition}`;
+  }
+
+  return sql`${baseClause} and ${extraCondition}`;
+}
+
+function migrateSqliteChatSessionsTable(database) {
+  database.client.exec(`
+    BEGIN;
+    CREATE TABLE IF NOT EXISTS chat_sessions_v2 (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL UNIQUE,
+      pending_input_mode TEXT CHECK (pending_input_mode IN ('income', 'expense')),
+      pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete')),
+      pending_payload TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    INSERT INTO chat_sessions_v2 (id, chat_id, pending_input_mode, pending_action, pending_payload, created_at, updated_at)
+    SELECT id, chat_id, pending_input_mode, pending_action, pending_payload, created_at, updated_at
+    FROM chat_sessions;
+
+    DROP TABLE chat_sessions;
+    ALTER TABLE chat_sessions_v2 RENAME TO chat_sessions;
+    CREATE INDEX IF NOT EXISTS idx_chat_sessions_chat_id ON chat_sessions (chat_id);
+    COMMIT;
+  `);
 }
 
 function mapSummaryRow(row) {
@@ -1153,6 +1343,7 @@ function mapTransactionRow(row) {
     rawAmount: row.raw_amount,
     original: row.original,
     confidence: Number(row.confidence),
+    deletedAt: normalizeTimestamp(row.deleted_at),
     createdAt: normalizeTimestamp(row.created_at),
     updatedAt: normalizeTimestamp(row.updated_at),
   };
@@ -1241,6 +1432,22 @@ function parseJsonValue(value, fallback = null) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeTransactionInput(transaction) {
+  return {
+    type: transaction.type,
+    amount: Number(transaction.amount),
+    note: transaction.note,
+    category: transaction.category,
+    paymentMethod: transaction.paymentMethod ?? null,
+    dateKind: transaction.date?.kind ?? null,
+    dateValue: transaction.date?.value ?? null,
+    tags: Array.isArray(transaction.tags) ? transaction.tags : [],
+    rawAmount: transaction.rawAmount ?? null,
+    original: transaction.original,
+    confidence: Number(transaction.confidence ?? 0),
+  };
 }
 
 function normalizeChatId(value) {
