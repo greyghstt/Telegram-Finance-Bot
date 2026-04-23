@@ -166,6 +166,7 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
   const result = await handleMessage(database, effective.text, {
     chatId,
     defaultTransactionType: effective.defaultTransactionType,
+    logger: createPerformanceLogger(),
   });
 
   if (result.kind === "clarification") {
@@ -513,4 +514,16 @@ function formatRupiah(value) {
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function createPerformanceLogger() {
+  if (process.env.PERF_LOGS !== "1") {
+    return null;
+  }
+
+  return {
+    info(payload) {
+      console.info(JSON.stringify(payload));
+    },
+  };
 }
