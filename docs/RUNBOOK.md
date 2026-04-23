@@ -120,8 +120,8 @@ the code needs them.
 
 ## Category Quality Checks
 
-Future category improvements should use AI suggestions with app-side
-normalization.
+Category improvements use AI suggestions with app-side normalization and
+per-chat category rules.
 
 Check that:
 
@@ -129,9 +129,23 @@ Check that:
 - Unknown category suggestions do not create messy production data silently.
 - Current unknown suggestions become `other` unless the transaction is income,
   where `income` remains the normalized category.
-- User corrections can later become aliases or category rules.
+- Custom categories are created only through explicit user commands such as
+  `kategori baru kopi Kopi` or through explicit correction targets.
+- Stored aliases such as `alias kategori ngopi = kopi` are scoped to the
+  Telegram chat.
+- `koreksi kategori 12 kopi` updates only that transaction and stores the note
+  as an alias when it is usable.
+- Ambiguous AI transaction candidates should wait for `pemasukan`,
+  `pengeluaran`, or `/batal` before saving anything.
 - Reports display friendly category labels, not raw technical labels, whenever
   possible.
+
+If `/database/status` fails after deploying category code, check whether the
+latest Supabase migration has been applied:
+
+```text
+supabase/migrations/20260423113000_add_custom_categories.sql
+```
 
 ## Vercel AI Environment
 

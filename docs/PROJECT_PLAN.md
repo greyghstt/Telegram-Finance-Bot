@@ -138,6 +138,9 @@ Free-form user text
     handling.
 29. Quick/deep AI profiles while keeping `MiniMax-M2.7-highspeed`.
 30. AI category suggestions normalized to existing categories.
+31. Custom category and category alias storage.
+32. Category correction command that stores note aliases.
+33. Improved ambiguous AI transaction clarification flow.
 
 ## Database
 
@@ -149,6 +152,8 @@ Tables:
 transactions
 chat_sessions
 budgets
+custom_categories
+category_aliases
 ```
 
 `transactions` stores:
@@ -177,6 +182,7 @@ id
 chat_id
 pending_input_mode
 pending_action
+pending_payload
 created_at
 updated_at
 ```
@@ -193,12 +199,35 @@ created_at
 updated_at
 ```
 
+`custom_categories` stores:
+
+```text
+id
+chat_id
+category
+label
+created_at
+updated_at
+```
+
+`category_aliases` stores:
+
+```text
+id
+chat_id
+alias
+category
+created_at
+updated_at
+```
+
 Migrations:
 
 ```text
 supabase/migrations/20260420075334_init_keuangan_schema.sql
 supabase/migrations/20260420100000_add_chat_session_pending_action.sql
 supabase/migrations/20260422235000_add_budgets.sql
+supabase/migrations/20260423113000_add_custom_categories.sql
 ```
 
 The migration filenames keep their original names to preserve migration
@@ -218,6 +247,8 @@ Visible Telegram UX remains Indonesian:
 /riwayat
 /kategori
 /insight
+/tanya bulan ini boros di mana?
+/budget
 /hapusterakhir
 /export
 /reset
@@ -235,6 +266,11 @@ tahun ini
 riwayat
 kategori
 insight
+tanya bulan ini boros di mana?
+budget
+kategori baru kopi Kopi
+alias kategori ngopi = kopi
+koreksi kategori 12 food
 cari bensin
 hapus terakhir
 hapus 12
@@ -783,23 +819,28 @@ Rules:
 - The app must normalize AI suggestions to known categories when possible.
 - Unknown suggestions should become `other` or ask the user before creating a
   custom category.
-- User corrections should be stored later as category aliases or rules.
+- User corrections are stored as category aliases when the note is usable.
 
-Future category features:
+Implemented category features:
 
 1. AI category suggestion.
 2. Custom categories.
 3. Category aliases.
-4. Merge category command.
-5. Learn from user corrections.
-6. Better category analytics in reports and dashboard.
+4. Category correction command.
+5. Learning from user correction notes as aliases.
+
+Future category features:
+
+1. Merge category command.
+2. Rename category command.
+3. Better category analytics in reports and dashboard.
 
 ### Recommended Next Implementation Order
 
-1. Keep monitoring latency metrics in local and production checks.
-2. Continue optimizing natural parser prompts and output size.
-3. Add custom category and alias storage.
-4. Add category correction commands.
+1. Apply and verify the category storage migration before production deploy.
+2. Test category customization in Telegram after deployment.
+3. Continue optimizing natural parser prompts and output size.
+4. Add merge/rename category commands if needed.
 5. Add AI weekly/monthly report after performance is stable.
 
 ## Verification Commands
@@ -837,10 +878,9 @@ Current non-AI backlog:
 
 AI backlog:
 
-1. Add custom categories and category aliases.
-2. Improve clarification flow for ambiguous AI transaction candidates.
+1. Add merge/rename category commands.
+2. Add richer weekly/monthly reports.
 3. Add budget editing shortcuts if needed.
-4. Add richer weekly/monthly reports.
 
 Optional future improvements:
 

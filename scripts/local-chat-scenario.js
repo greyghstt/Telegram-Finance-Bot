@@ -23,6 +23,9 @@ const messages = [
   "budget food 100k",
   "cek budget",
   "saran budget",
+  "kategori baru kopi Kopi",
+  "alias kategori ngopi = kopi",
+  "koreksi kategori 3 kopi",
   "help",
 ];
 
