@@ -87,7 +87,8 @@ export async function initializeDatabase(database) {
         id bigint generated always as identity primary key,
         chat_id text not null unique,
         pending_input_mode text check (pending_input_mode in ('income', 'expense')),
-        pending_action text check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete')),
+        pending_action text check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete', 'wallet_action_clarify', 'wallet_select_clarify', 'wallet_confirm')),
+        default_wallet text,
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       )
@@ -101,7 +102,11 @@ export async function initializeDatabase(database) {
     await database.client`
       alter table public.chat_sessions
       add constraint chat_sessions_pending_action_check
-      check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete'))
+      check (pending_action in ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete', 'wallet_action_clarify', 'wallet_select_clarify', 'wallet_confirm'))
+    `;
+    await database.client`
+      alter table public.chat_sessions
+      add column if not exists default_wallet text
     `;
     await database.client`
       alter table public.transactions
@@ -155,6 +160,19 @@ export async function initializeDatabase(database) {
       )
     `;
     await database.client`create index if not exists idx_wallets_chat_id on public.wallets (chat_id)`;
+    await database.client`
+      create table if not exists public.wallet_balance_entries (
+        id bigint generated always as identity primary key,
+        chat_id text not null,
+        wallet text not null,
+        action text not null check (action in ('set', 'adjust')),
+        amount integer not null,
+        note text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )
+    `;
+    await database.client`create index if not exists idx_wallet_balance_entries_chat_wallet on public.wallet_balance_entries (chat_id, wallet, created_at desc)`;
     await database.client`
       create table if not exists public.transfers (
         id bigint generated always as identity primary key,
@@ -254,7 +272,8 @@ export async function initializeDatabase(database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL UNIQUE,
       pending_input_mode TEXT CHECK (pending_input_mode IN ('income', 'expense')),
-      pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete')),
+      pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete', 'wallet_action_clarify', 'wallet_select_clarify', 'wallet_confirm')),
+      default_wallet TEXT,
       pending_payload TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -315,6 +334,20 @@ export async function initializeDatabase(database) {
     CREATE INDEX IF NOT EXISTS idx_wallets_chat_id
       ON wallets (chat_id);
 
+    CREATE TABLE IF NOT EXISTS wallet_balance_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      wallet TEXT NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('set', 'adjust')),
+      amount INTEGER NOT NULL,
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_wallet_balance_entries_chat_wallet
+      ON wallet_balance_entries (chat_id, wallet, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS transfers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL,
@@ -369,7 +402,7 @@ export async function initializeDatabase(database) {
   try {
     database.client.exec(`
       ALTER TABLE chat_sessions
-      ADD COLUMN pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete'));
+      ADD COLUMN pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete', 'wallet_action_clarify', 'wallet_select_clarify', 'wallet_confirm'));
     `);
   } catch (error) {
     if (!String(error.message).includes("duplicate column name")) {
@@ -379,6 +412,14 @@ export async function initializeDatabase(database) {
 
   try {
     database.client.exec("ALTER TABLE chat_sessions ADD COLUMN pending_payload TEXT;");
+  } catch (error) {
+    if (!String(error.message).includes("duplicate column name")) {
+      throw error;
+    }
+  }
+
+  try {
+    database.client.exec("ALTER TABLE chat_sessions ADD COLUMN default_wallet TEXT;");
   } catch (error) {
     if (!String(error.message).includes("duplicate column name")) {
       throw error;
@@ -882,6 +923,108 @@ export async function saveWallet(database, { chatId, name }) {
   return getWallet(database, cleanChatId, cleanName);
 }
 
+export async function setDefaultWallet(database, chatId, wallet) {
+  const cleanChatId = normalizeChatId(chatId);
+  const cleanWallet = wallet == null ? null : normalizeWalletName(wallet);
+
+  if (cleanWallet) {
+    await saveWallet(database, { chatId: cleanChatId, name: cleanWallet });
+  }
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      insert into public.chat_sessions (chat_id, default_wallet, updated_at)
+      values (${cleanChatId}, ${cleanWallet}, now())
+      on conflict (chat_id)
+      do update set default_wallet = excluded.default_wallet, updated_at = now()
+      returning *
+    `;
+    return mapChatSessionRow(rows[0]);
+  }
+
+  const now = new Date().toISOString();
+  database.client
+    .prepare(
+      `INSERT INTO chat_sessions (chat_id, default_wallet, created_at, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(chat_id)
+       DO UPDATE SET default_wallet = excluded.default_wallet, updated_at = excluded.updated_at`,
+    )
+    .run(cleanChatId, cleanWallet, now, now);
+
+  return getChatSession(database, cleanChatId);
+}
+
+export async function saveWalletBalanceEntry(database, { chatId, wallet, action, amount, note = "" }) {
+  const cleanChatId = normalizeChatId(chatId);
+  const cleanWallet = normalizeWalletName(wallet);
+  const cleanAction = String(action ?? "").trim().toLowerCase();
+  const parsedAmount = Number.parseInt(amount, 10);
+
+  if (!cleanWallet || !["set", "adjust"].includes(cleanAction) || !Number.isSafeInteger(parsedAmount)) {
+    throw new Error("Wallet balance entry tidak valid.");
+  }
+
+  await saveWallet(database, { chatId: cleanChatId, name: cleanWallet });
+
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      insert into public.wallet_balance_entries (chat_id, wallet, action, amount, note, updated_at)
+      values (${cleanChatId}, ${cleanWallet}, ${cleanAction}, ${parsedAmount}, ${note || null}, now())
+      returning *
+    `;
+    return mapWalletBalanceEntryRow(rows[0]);
+  }
+
+  const now = new Date().toISOString();
+  const result = database.client
+    .prepare(
+      `INSERT INTO wallet_balance_entries (chat_id, wallet, action, amount, note, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(cleanChatId, cleanWallet, cleanAction, parsedAmount, note || null, now, now);
+
+  return getWalletBalanceEntryById(database, Number(result.lastInsertRowid));
+}
+
+export async function listWalletBalanceEntries(database, chatId, { wallet = null, limit = 50 } = {}) {
+  const cleanChatId = normalizeChatId(chatId);
+  const cleanWallet = wallet ? normalizeWalletName(wallet) : null;
+  const safeLimit = clampInteger(limit, 1, 200);
+
+  if (database.kind === "postgres") {
+    if (cleanWallet) {
+      const rows = await database.client`
+        select * from public.wallet_balance_entries
+        where chat_id = ${cleanChatId} and wallet = ${cleanWallet}
+        order by id desc
+        limit ${safeLimit}
+      `;
+      return rows.map(mapWalletBalanceEntryRow);
+    }
+
+    const rows = await database.client`
+      select * from public.wallet_balance_entries
+      where chat_id = ${cleanChatId}
+      order by id desc
+      limit ${safeLimit}
+    `;
+    return rows.map(mapWalletBalanceEntryRow);
+  }
+
+  if (cleanWallet) {
+    return database.client
+      .prepare("SELECT * FROM wallet_balance_entries WHERE chat_id = ? AND wallet = ? ORDER BY id DESC LIMIT ?")
+      .all(cleanChatId, cleanWallet, safeLimit)
+      .map(mapWalletBalanceEntryRow);
+  }
+
+  return database.client
+    .prepare("SELECT * FROM wallet_balance_entries WHERE chat_id = ? ORDER BY id DESC LIMIT ?")
+    .all(cleanChatId, safeLimit)
+    .map(mapWalletBalanceEntryRow);
+}
+
 export async function listWallets(database, chatId) {
   const cleanChatId = normalizeChatId(chatId);
 
@@ -952,6 +1095,7 @@ export async function getWalletBalances(database, chatId) {
   const wallets = await listWallets(database, chatId);
   const transfers = await listTransfers(database, chatId, { limit: 1000 });
   const transactions = await listTransactions(database, { limit: 1000 });
+  const balanceEntries = await listWalletBalanceEntries(database, chatId, { limit: 1000 });
 
   return wallets.map((wallet) => {
     const transactionDelta = transactions
@@ -963,10 +1107,27 @@ export async function getWalletBalances(database, chatId) {
     const transferOut = transfers
       .filter((transfer) => transfer.fromWallet === wallet.name)
       .reduce((total, transfer) => total + transfer.amount, 0);
+    const walletEntries = balanceEntries
+      .filter((entry) => entry.wallet === wallet.name)
+      .sort((left, right) => left.id - right.id);
+
+    let baseline = 0;
+    let adjustmentDelta = 0;
+    for (const entry of walletEntries) {
+      if (entry.action === "set") {
+        baseline = entry.amount;
+        adjustmentDelta = 0;
+        continue;
+      }
+
+      adjustmentDelta += entry.amount;
+    }
 
     return {
       ...wallet,
-      balance: transactionDelta + transferIn - transferOut,
+      balance: baseline + adjustmentDelta + transactionDelta + transferIn - transferOut,
+      baseline,
+      adjustmentDelta,
       transactionDelta,
       transferIn,
       transferOut,
@@ -1707,14 +1868,15 @@ function migrateSqliteChatSessionsTable(database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       chat_id TEXT NOT NULL UNIQUE,
       pending_input_mode TEXT CHECK (pending_input_mode IN ('income', 'expense')),
-      pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete')),
+      pending_action TEXT CHECK (pending_action IN ('reset_confirm', 'budget_reset_confirm', 'transaction_clarify', 'undo_delete', 'wallet_action_clarify', 'wallet_select_clarify', 'wallet_confirm')),
+      default_wallet TEXT,
       pending_payload TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    INSERT INTO chat_sessions_v2 (id, chat_id, pending_input_mode, pending_action, pending_payload, created_at, updated_at)
-    SELECT id, chat_id, pending_input_mode, pending_action, pending_payload, created_at, updated_at
+    INSERT INTO chat_sessions_v2 (id, chat_id, pending_input_mode, pending_action, default_wallet, pending_payload, created_at, updated_at)
+    SELECT id, chat_id, pending_input_mode, pending_action, default_wallet, pending_payload, created_at, updated_at
     FROM chat_sessions;
 
     DROP TABLE chat_sessions;
@@ -1791,6 +1953,20 @@ async function getTransferById(database, id) {
   return row ? mapTransferRow(row) : null;
 }
 
+async function getWalletBalanceEntryById(database, id) {
+  if (database.kind === "postgres") {
+    const rows = await database.client`
+      select * from public.wallet_balance_entries where id = ${id} limit 1
+    `;
+    return rows[0] ? mapWalletBalanceEntryRow(rows[0]) : null;
+  }
+
+  const row = database.client
+    .prepare("SELECT * FROM wallet_balance_entries WHERE id = ? LIMIT 1")
+    .get(id);
+  return row ? mapWalletBalanceEntryRow(row) : null;
+}
+
 async function getRecurringRuleById(database, id) {
   if (database.kind === "postgres") {
     const rows = await database.client`select * from public.recurring_rules where id = ${id} limit 1`;
@@ -1829,6 +2005,19 @@ function mapWalletRow(row) {
     id: Number(row.id),
     chatId: row.chat_id,
     name: row.name,
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
+  };
+}
+
+function mapWalletBalanceEntryRow(row) {
+  return {
+    id: Number(row.id),
+    chatId: row.chat_id,
+    wallet: row.wallet,
+    action: row.action,
+    amount: Number(row.amount),
+    note: row.note,
     createdAt: normalizeTimestamp(row.created_at),
     updatedAt: normalizeTimestamp(row.updated_at),
   };
@@ -1926,6 +2115,7 @@ function mapChatSessionRow(row) {
     id: Number(row.id),
     chatId: row.chat_id,
     pendingInputMode: row.pending_input_mode,
+    defaultWallet: row.default_wallet ?? null,
     pendingAction: row.pending_action,
     pendingPayload: parseJsonValue(row.pending_payload),
     createdAt: normalizeTimestamp(row.created_at),
