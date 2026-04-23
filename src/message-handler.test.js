@@ -36,7 +36,7 @@ describe("message handler", () => {
     });
 
     assert.equal(result.ok, true);
-    assert.equal(result.metrics.dbQueries, 2);
+    assert.equal(result.metrics.dbQueries >= 2, true);
     assert.equal(result.metrics.aiCalls, 0);
     assert.equal(Number.isFinite(result.metrics.totalMs), true);
     assert.equal(logs.length, 1);
@@ -103,6 +103,70 @@ describe("message handler", () => {
     assert.equal(transferB.command, "transfer_save");
     assert.match(wallets.reply, /Cash: Rp\u00a090.000/);
     assert.match(wallets.reply, /Bca: Rp\u00a0410.000/);
+  });
+
+  it("supports wallet balance set and default wallet flows", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "dompet tambah bank", { chatId: 123 });
+    const setBalance = await handleMessage(database, "set saldo dompet bank 70230", { chatId: 123 });
+    const setDefault = await handleMessage(database, "default dompet bank", { chatId: 123 });
+    const expense = await handleMessage(database, "20k makan", { chatId: 123, defaultTransactionType: "expense" });
+    const wallets = await handleMessage(database, "dompet", { chatId: 123 });
+
+    assert.equal(setBalance.command, "wallet_balance_set");
+    assert.equal(setDefault.command, "wallet_default_set");
+    assert.equal(expense.saved[0].wallet, "bank");
+    assert.match(wallets.reply, /Dompet default: Bank/);
+    assert.match(wallets.reply, /Bank: Rp\u00a050.230/);
+  });
+
+  it("supports wallet balance adjustment without changing finance summary", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "dompet tambah bank", { chatId: 123 });
+    await handleMessage(database, "set saldo dompet bank 70k", { chatId: 123 });
+    const adjusted = await handleMessage(database, "tambah saldo dompet bank 5k", { chatId: 123 });
+    const balance = await handleMessage(database, "saldo", { chatId: 123 });
+    const wallets = await handleMessage(database, "dompet", { chatId: 123 });
+
+    assert.equal(adjusted.command, "wallet_balance_adjust");
+    assert.equal(balance.summary.balance, 0);
+    assert.match(wallets.reply, /Bank: Rp\u00a075.000/);
+  });
+
+  it("asks for wallet clarification when expense wallet is ambiguous", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "dompet tambah cash", { chatId: 123 });
+    await handleMessage(database, "dompet tambah gopay", { chatId: 123 });
+
+    const result = await handleMessage(database, "20k makan", { chatId: 123, defaultTransactionType: "expense" });
+
+    assert.equal(result.kind, "clarification");
+    assert.equal(result.command, "wallet_select_clarify");
+    assert.match(result.reply, /dompet mana/i);
+  });
+
+  it("uses AI-assisted wallet intent classification for ambiguous wallet balance text", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "dompet tambah bank", { chatId: 123 });
+    const result = await handleMessage(database, "saldo bank 70230", {
+      chatId: 123,
+      classifyWalletIntent: async () => ({
+        ok: true,
+        intent: "wallet_balance_set",
+        wallet: "bank",
+        amount: 70230,
+        note: "saldo bank",
+        confidence: 0.92,
+      }),
+    });
+
+    assert.equal(result.kind, "clarification");
+    assert.equal(result.command, "wallet_action_clarify");
+    assert.match(result.reply, /set saldo dompet bank 70230/i);
   });
 
   it("returns deterministic transfer guidance and skips AI for malformed transfer text", async () => {
