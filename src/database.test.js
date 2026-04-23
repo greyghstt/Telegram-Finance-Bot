@@ -36,6 +36,7 @@ import {
   setChatSessionPendingAction,
   updateTransactionCategory,
   updateTransactionById,
+  shouldInitializeDatabaseAtRuntime,
 } from "./database.js";
 import { parseInput } from "./parser.js";
 
@@ -60,6 +61,24 @@ describe("database", () => {
       customCategories: 0,
       categoryAliases: 0,
     });
+  });
+
+  it("initializes runtime schema when DATABASE_URL is present", () => {
+    const original = {
+      DATABASE_URL: process.env.DATABASE_URL,
+      RUNTIME_DB_INIT: process.env.RUNTIME_DB_INIT,
+      VERCEL: process.env.VERCEL,
+    };
+
+    process.env.DATABASE_URL = "postgres://example";
+    process.env.VERCEL = "1";
+    delete process.env.RUNTIME_DB_INIT;
+
+    assert.equal(shouldInitializeDatabaseAtRuntime(), true);
+
+    process.env.DATABASE_URL = original.DATABASE_URL;
+    process.env.RUNTIME_DB_INIT = original.RUNTIME_DB_INIT;
+    process.env.VERCEL = original.VERCEL;
   });
 
   it("saves a parsed transaction", async () => {
