@@ -184,7 +184,14 @@ describe("telegram service", () => {
 
     await processTelegramUpdate({
       database,
-      update: textUpdate("-20k bensin"),
+      update: textUpdate("Input Pengeluaran"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("20k bensin"),
       token: "test-token",
       allowedChatIds,
     });
@@ -208,7 +215,14 @@ describe("telegram service", () => {
 
     await processTelegramUpdate({
       database,
-      update: textUpdate("-20k bensin"),
+      update: textUpdate("Input Pengeluaran"),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("20k bensin"),
       token: "test-token",
       allowedChatIds,
     });

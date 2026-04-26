@@ -19,40 +19,15 @@ describe("parseAmount", () => {
 });
 
 describe("parseTransactionLine", () => {
-  it("parses basic expenses", () => {
-    const result = parseTransactionLine("-20k bensin");
+  it("requires explicit type context for transaction parsing", () => {
+    const result = parseTransactionLine("20k bensin");
 
-    assert.equal(result.ok, true);
-    assert.equal(result.transaction.type, "expense");
-    assert.equal(result.transaction.amount, 20000);
-    assert.equal(result.transaction.note, "bensin");
-    assert.equal(result.transaction.category, "transport");
+    assert.equal(result.ok, false);
+    assert.match(result.error, /Tipe transaksi belum jelas/);
   });
 
-  it("parses income from plus sign", () => {
-    const result = parseTransactionLine("+500k gaji");
-
-    assert.equal(result.ok, true);
-    assert.equal(result.transaction.type, "income");
-    assert.equal(result.transaction.amount, 500000);
-    assert.equal(result.transaction.note, "gaji");
-    assert.equal(result.transaction.category, "income");
-  });
-
-  it("uses the leading sign as the transaction type", () => {
-    const expense = parseTransactionLine("-bayar Rp35.000 makan");
-    const income = parseTransactionLine("+masuk 1,5jt freelance");
-
-    assert.equal(expense.transaction.type, "expense");
-    assert.equal(expense.transaction.amount, 35000);
-    assert.equal(expense.transaction.note, "makan");
-    assert.equal(income.transaction.type, "income");
-    assert.equal(income.transaction.amount, 1500000);
-    assert.equal(income.transaction.note, "freelance");
-  });
-
-  it("parses amount after note and keeps metadata", () => {
-    const result = parseTransactionLine("-makan ayam 27rb via qris kemarin #kantin");
+  it("parses amount after note and keeps metadata when type context is explicit", () => {
+    const result = parseTransactionLine("makan ayam 27rb via qris kemarin #kantin", { defaultType: "expense" });
 
     assert.equal(result.ok, true);
     assert.equal(result.transaction.type, "expense");
@@ -68,8 +43,8 @@ describe("parseTransactionLine", () => {
     assert.deepEqual(result.transaction.tags, ["kantin"]);
   });
 
-  it("supports explicit category and date", () => {
-    const result = parseTransactionLine("-Rp125.000 buku kategori education 16/04/2026");
+  it("supports explicit category and date with explicit type context", () => {
+    const result = parseTransactionLine("Rp125.000 buku kategori education 16/04/2026", { defaultType: "expense" });
 
     assert.equal(result.ok, true);
     assert.equal(result.transaction.amount, 125000);
@@ -78,42 +53,25 @@ describe("parseTransactionLine", () => {
     assert.equal(result.transaction.date.value, "2026-04-16");
   });
 
-  it("supports explicit wallet metadata", () => {
-    const result = parseTransactionLine("-20k bensin dompet cash");
+  it("supports explicit wallet metadata with explicit type context", () => {
+    const result = parseTransactionLine("20k bensin dompet cash", { defaultType: "expense" });
 
     assert.equal(result.ok, true);
     assert.equal(result.transaction.wallet, "cash");
   });
 
-  it("supports negative sign for expense and large income", () => {
-    const expense = parseTransactionLine("- 15k parkir");
-    const income = parseTransactionLine("+ Rp2.500.000 gaji bca");
-
-    assert.equal(expense.transaction.type, "expense");
-    assert.equal(expense.transaction.amount, 15000);
-    assert.equal(income.transaction.type, "income");
-    assert.equal(income.transaction.amount, 2500000);
-    assert.equal(income.transaction.paymentMethod, "bank_transfer");
-  });
-
-  it("parses clear natural expense intent without sign", () => {
+  it("does not infer clear natural expense intent without explicit type", () => {
     const result = parseTransactionLine("beli bensin 20 ribu pakai cash");
 
-    assert.equal(result.ok, true);
-    assert.equal(result.transaction.type, "expense");
-    assert.equal(result.transaction.amount, 20000);
-    assert.equal(result.transaction.paymentMethod, "cash");
-    assert.match(result.transaction.note, /bensin/i);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /Tipe transaksi belum jelas/);
   });
 
-  it("parses clear natural income intent without sign", () => {
+  it("does not infer clear natural income intent without explicit type", () => {
     const result = parseTransactionLine("gaji freelance masuk 1,5 juta ke bca");
 
-    assert.equal(result.ok, true);
-    assert.equal(result.transaction.type, "income");
-    assert.equal(result.transaction.amount, 1500000);
-    assert.equal(result.transaction.paymentMethod, "bank_transfer");
-    assert.match(result.transaction.note, /gaji freelance/i);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /Tipe transaksi belum jelas/);
   });
 
   it("asks for explicit type when natural input is ambiguous", () => {
@@ -196,16 +154,6 @@ describe("parseInput", () => {
     assert.equal(parseInput("analisis").command, "insight");
     assert.equal(parseInput("analisa").command, "insight");
     assert.equal(parseInput("reset data").command, "reset_data");
-  });
-
-  it("parses multiline transactions as a batch", () => {
-    const result = parseInput("1. -12k minimarket\n2. -20k bensin\n3. +100k refund");
-
-    assert.equal(result.ok, true);
-    assert.equal(result.kind, "batch");
-    assert.equal(result.count, 3);
-    assert.equal(result.totalExpense, 32000);
-    assert.equal(result.totalIncome, 100000);
   });
 
   it("parses unsigned batch transactions with explicit default type", () => {

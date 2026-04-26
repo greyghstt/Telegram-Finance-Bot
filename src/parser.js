@@ -229,26 +229,6 @@ const MONTHS = new Map([
 const AMOUNT_PATTERN =
   /(?:^|\s)([+-]?)\s*(?:rp\.?\s*)?(\d+(?:[.,]\d{3})*(?:[.,]\d+)?|\d+)\s*(?:(ribu|rebu|rb|r|k|juta|jt|mio|m)\b)?(?:\s*,-)?/i;
 
-const EXPENSE_INTENT_KEYWORDS = [
-  "beli",
-  "bayar",
-  "belanja",
-  "buat",
-  "pakai",
-  "pake",
-];
-
-const INCOME_INTENT_KEYWORDS = [
-  "gaji",
-  "bonus",
-  "freelance",
-  "fee",
-  "refund",
-  "cashback",
-  "terima",
-  "masuk",
-];
-
 const REQUIRED_SIGN_MESSAGE =
   "Tipe transaksi belum jelas. Pilih /pemasukan atau /pengeluaran.";
 
@@ -262,6 +242,10 @@ export function parseInput(input, options = {}) {
   const command = parseCommand(message);
   if (command) {
     return command;
+  }
+
+  if (options.commandsOnly) {
+    return errorResult("Command belum dikenali.", input);
   }
 
   const lines = splitTransactionLines(input);
@@ -314,8 +298,7 @@ export function parseTransactionLine(input, options = {}) {
     return errorResult("Baris transaksi kosong.", original);
   }
 
-  const signMatch = normalized.match(/^([+-])\s*/);
-  const content = signMatch ? normalized.slice(signMatch[0].length).trim() : normalized;
+  const content = normalized;
   if (!content) {
     return errorResult("Tulis nominal dan catatan transaksi.", original);
   }
@@ -323,7 +306,7 @@ export function parseTransactionLine(input, options = {}) {
   const amountMatch = content.match(AMOUNT_PATTERN);
   if (!amountMatch) {
     return errorResult(
-      "Nominal belum ditemukan. Contoh: -20k bensin, +500k gaji, -35rb makan.",
+      "Nominal belum ditemukan. Contoh: 20k bensin atau 500k gaji.",
       original,
     );
   }
@@ -340,9 +323,7 @@ export function parseTransactionLine(input, options = {}) {
   const metadata = extractMetadata(combinedNote);
   const note = cleanNote(metadata.note);
   const type = detectTransactionType({
-    sign: signMatch?.[1],
     defaultType: options.defaultType,
-    text: combinedNote,
   });
 
   if (!type) {
@@ -525,29 +506,9 @@ function removeDateText(note, dateText) {
   return normalizeWhitespace(note.replace(new RegExp(`\\b${escapeRegExp(dateText)}\\b`, "i"), " "));
 }
 
-function detectTransactionType({ sign, defaultType, text }) {
-  if (sign === "+") {
-    return "income";
-  }
-
-  if (sign === "-") {
-    return "expense";
-  }
-
+function detectTransactionType({ defaultType }) {
   if (isValidDefaultType(defaultType)) {
     return defaultType;
-  }
-
-  const lowerText = String(text ?? "").toLowerCase();
-  const hasIncomeIntent = containsKeyword(lowerText, INCOME_INTENT_KEYWORDS);
-  const hasExpenseIntent = containsKeyword(lowerText, EXPENSE_INTENT_KEYWORDS);
-
-  if (hasIncomeIntent && !hasExpenseIntent) {
-    return "income";
-  }
-
-  if (hasExpenseIntent && !hasIncomeIntent) {
-    return "expense";
   }
 
   return null;

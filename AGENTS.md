@@ -23,7 +23,7 @@ When working in this repository, optimize for:
 
 - correctness of financial data
 - secure secret handling
-- deterministic parser behavior
+- AI-first natural finance routing with app-side validation
 - small and reviewable changes
 - passing tests
 - production safety
@@ -198,18 +198,13 @@ gaji freelance masuk 500k
 
 Target direction:
 
-- Telegram income/expense buttons should remain available for explicit type choice.
-- Natural Indonesian input should be accepted for simple transactions.
-- Wallet-oriented income phrases such as `topup gopay 100k` or
-  `masuk ke bca 500k gaji` should stay on deterministic routing before AI.
-- Wallet and transfer commands should prefer rule-based parsing and clear format
-  hints over AI fallback when the message is incomplete.
-- Wallet balance actions such as `set saldo dompet` or `tambah saldo dompet`
-  are sensitive and should require explicit routing plus confirmation when the
-  intent is inferred from ambiguous natural text.
+- Telegram income/expense buttons remain available for explicit type choice.
+- Normal Indonesian finance text should enter the AI intent router before transaction parsing.
+- The AI router must return structured JSON intent, not free-form instructions.
+- The app validates amounts, type, category, wallet names, confidence, and destructive boundaries before saving or executing.
+- Wallet balance actions such as `set saldo dompet` or `tambah saldo dompet` are sensitive and should require explicit validation plus confirmation when inferred from ambiguous natural text.
 - AI may auto-save a simple transaction only after app-side validation.
-- Ambiguous transactions should ask the user to choose income, expense, or
-  cancel.
+- Ambiguous transactions should ask the user to choose `1` expense, `2` income, or `3` not a transaction.
 
 The application validator remains the source of truth for saved transactions.
 
@@ -243,23 +238,23 @@ AI_TIMEOUT_MS=25000
 PERF_LOGS=0
 ```
 
-AI must be introduced in this order:
+AI-first routing order:
 
-1. AI foundation and safe fallback.
-2. Read-only `/insight`.
-3. Finance Q&A.
-4. Natural input parser with validated auto-save.
-5. Budget assistant.
+1. Hard system/session commands, auth, and destructive confirmations.
+2. AI intent router for normal user messages.
+3. App-side intent validation.
+4. Intent execution.
+5. Safe fallback or numbered clarification when AI fails or output is ambiguous.
 
 AI must never:
 
 - calculate financial truth from raw guesses
 - invent amounts
 - save unvalidated or ambiguous transactions
-- bypass the manual parser for final validation
+- bypass app-side final validation
 - expose secrets in logs
 
-For `/insight`, send summarized data only. Do not send full database dumps.
+For read-only AI features, send summarized data only. Do not send full database dumps.
 
 ## Next Phase Guidance
 
@@ -285,13 +280,13 @@ Current implemented state after that phase:
 
 Implementation priorities:
 
-1. Measure latency for database work, AI calls, and total Telegram response.
-2. Split AI behavior into quick AI and deep AI paths.
-3. Keep MiniMax-M2.7-highspeed as the only configured model for now.
-4. Make unsigned input the normal flow.
-5. Keep `+` and `-` as optional backward-compatible shortcuts.
+1. Keep normal user messages AI-first.
+2. Measure latency for database work, AI calls, and total Telegram response.
+3. Split AI behavior into quick AI and deep AI paths.
+4. Keep MiniMax-M2.7-highspeed as the only configured model for now.
+5. Keep natural input as the normal flow.
 6. Add AI category suggestion with app-side normalization.
-7. Add custom category and alias support after suggestions are stable.
+7. Keep custom category and alias support scoped per chat.
 
 Safe latency logs are enabled with `PERF_LOGS=1`. They must stay compact and
 must not include message text, chat IDs, transaction notes, API keys, database

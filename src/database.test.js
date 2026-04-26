@@ -41,12 +41,27 @@ import {
   updateTransactionById,
   shouldInitializeDatabaseAtRuntime,
 } from "./database.js";
-import { parseInput } from "./parser.js";
 
 async function createTestDatabase() {
   const database = openDatabase(":memory:");
   await initializeDatabase(database);
   return database;
+}
+
+function transaction({ type = "expense", amount, note, category = "other", wallet = null }) {
+  return {
+    type,
+    amount,
+    note,
+    category,
+    wallet,
+    paymentMethod: null,
+    date: null,
+    tags: [],
+    rawAmount: String(amount),
+    original: `${note} ${amount}`,
+    confidence: 0.9,
+  };
 }
 
 describe("database", () => {
@@ -86,8 +101,7 @@ describe("database", () => {
 
   it("saves a parsed transaction", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-20k bensin");
-    const saved = await saveTransaction(database, parsed.transaction);
+    const saved = await saveTransaction(database, transaction({ amount: 20000, note: "bensin", category: "transport" }));
 
     assert.equal(saved.id, 1);
     assert.equal(saved.type, "expense");
@@ -98,8 +112,11 @@ describe("database", () => {
 
   it("saves batch transactions and calculates summary", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-12k minimarket\n-20k bensin\n+100k refund");
-    const saved = await saveTransactions(database, parsed.transactions);
+    const saved = await saveTransactions(database, [
+      transaction({ amount: 12000, note: "minimarket", category: "groceries" }),
+      transaction({ amount: 20000, note: "bensin", category: "transport" }),
+      transaction({ type: "income", amount: 100000, note: "refund", category: "income" }),
+    ]);
     const summary = await getSummary(database);
 
     assert.equal(saved.length, 3);
@@ -111,9 +128,10 @@ describe("database", () => {
 
   it("lists and deletes last transaction", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-10k makan\n+50k cashback");
-
-    await saveTransactions(database, parsed.transactions);
+    await saveTransactions(database, [
+      transaction({ amount: 10000, note: "makan", category: "food" }),
+      transaction({ type: "income", amount: 50000, note: "cashback", category: "income" }),
+    ]);
 
     const transactions = await listTransactions(database);
     assert.equal(transactions.length, 2);
@@ -140,9 +158,11 @@ describe("database", () => {
 
   it("clears all transactions", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-12k minimarket\n-20k bensin\n+100k refund");
-
-    await saveTransactions(database, parsed.transactions);
+    await saveTransactions(database, [
+      transaction({ amount: 12000, note: "minimarket", category: "groceries" }),
+      transaction({ amount: 20000, note: "bensin", category: "transport" }),
+      transaction({ type: "income", amount: 100000, note: "refund", category: "income" }),
+    ]);
     const result = await clearAllTransactions(database);
 
     assert.equal(result.deletedCount, 3);
@@ -151,8 +171,10 @@ describe("database", () => {
 
   it("deletes a transaction by id", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-10k makan\n-20k bensin");
-    const saved = await saveTransactions(database, parsed.transactions);
+    const saved = await saveTransactions(database, [
+      transaction({ amount: 10000, note: "makan", category: "food" }),
+      transaction({ amount: 20000, note: "bensin", category: "transport" }),
+    ]);
 
     const deleted = await deleteTransactionById(database, saved[0].id);
     const remaining = await listTransactions(database);
@@ -165,8 +187,10 @@ describe("database", () => {
 
   it("restores soft-deleted transactions", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-10k makan\n-20k bensin");
-    const saved = await saveTransactions(database, parsed.transactions);
+    const saved = await saveTransactions(database, [
+      transaction({ amount: 10000, note: "makan", category: "food" }),
+      transaction({ amount: 20000, note: "bensin", category: "transport" }),
+    ]);
 
     await deleteTransactionById(database, saved[1].id);
     const restored = await restoreTransactionById(database, saved[1].id);
@@ -179,11 +203,10 @@ describe("database", () => {
 
   it("updates a transaction by id", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-10k makan");
-    const saved = await saveTransaction(database, parsed.transaction);
-    const replacement = parseInput("+25k refund transport");
+    const saved = await saveTransaction(database, transaction({ amount: 10000, note: "makan", category: "food" }));
+    const replacement = transaction({ type: "income", amount: 25000, note: "refund transport", category: "income" });
 
-    const updated = await updateTransactionById(database, saved.id, replacement.transaction);
+    const updated = await updateTransactionById(database, saved.id, replacement);
 
     assert.equal(updated.id, saved.id);
     assert.equal(updated.type, "income");
@@ -193,9 +216,10 @@ describe("database", () => {
 
   it("searches transactions by note and category", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-20k bensin\n-15k kopi kategori food");
-
-    await saveTransactions(database, parsed.transactions);
+    await saveTransactions(database, [
+      transaction({ amount: 20000, note: "bensin", category: "transport" }),
+      transaction({ amount: 15000, note: "kopi", category: "food" }),
+    ]);
     const byNote = await searchTransactions(database, "bensin");
     const byCategory = await searchTransactions(database, "food");
 
@@ -207,9 +231,10 @@ describe("database", () => {
 
   it("stores budgets and calculates monthly progress", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-450k makan kategori food\n-50k bensin kategori transport");
-
-    await saveTransactions(database, parsed.transactions);
+    await saveTransactions(database, [
+      transaction({ amount: 450000, note: "makan", category: "food" }),
+      transaction({ amount: 50000, note: "bensin", category: "transport" }),
+    ]);
     const food = await saveBudget(database, {
       chatId: 123,
       category: "food",
@@ -235,9 +260,10 @@ describe("database", () => {
 
   it("supports global weekly budgets", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-90k makan\n-10k parkir");
-
-    await saveTransactions(database, parsed.transactions);
+    await saveTransactions(database, [
+      transaction({ amount: 90000, note: "makan", category: "food" }),
+      transaction({ amount: 10000, note: "parkir", category: "transport" }),
+    ]);
     await saveBudget(database, {
       chatId: 123,
       category: "global",
@@ -295,8 +321,8 @@ describe("database", () => {
 
     await saveWallet(database, { chatId: 123, name: "cash" });
     await saveWallet(database, { chatId: 123, name: "bca" });
-    await saveTransaction(database, parseInput("+500k gaji dompet bca").transaction);
-    await saveTransaction(database, parseInput("-50k makan dompet cash").transaction);
+    await saveTransaction(database, transaction({ type: "income", amount: 500000, note: "gaji", category: "income", wallet: "bca" }));
+    await saveTransaction(database, transaction({ amount: 50000, note: "makan", category: "food", wallet: "cash" }));
     await saveTransfer(database, { chatId: 123, fromWallet: "bca", toWallet: "cash", amount: 100000, note: "isi cash" });
 
     const wallets = await getWalletBalances(database, 123);
@@ -330,7 +356,7 @@ describe("database", () => {
     await saveRecurringRule(database, {
       chatId: 123,
       cadence: "monthly",
-      templateMessage: "-500k kos kategori housing",
+      templateMessage: "kos 500k kategori housing",
       nextRunAt: "2026-05-01T00:00:00.000Z",
     });
     await saveBillReminder(database, {
@@ -347,8 +373,7 @@ describe("database", () => {
 
   it("updates a transaction category", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-20k kopi kategori other");
-    const saved = await saveTransaction(database, parsed.transaction);
+    const saved = await saveTransaction(database, transaction({ amount: 20000, note: "kopi", category: "other" }));
 
     const updated = await updateTransactionCategory(database, saved.id, "kopi");
 

@@ -91,10 +91,7 @@ If it returns `401`, check the local or Vercel `ADMIN_API_TOKEN`.
 
 ## Troubleshoot AI Insight
 
-AI features include `/insight`, `tanya ...`, `saran budget`, and natural
-transaction extraction. Weekly/monthly AI reports and anomaly checks use the
-same guardrail pattern. Existing non-AI commands should continue to work when
-AI is disabled, the key is missing, or SumoPod is unavailable.
+AI features include `/insight`, `tanya ...`, `saran budget`, AI-first natural intent routing, and natural transaction extraction. Weekly/monthly AI reports and anomaly checks use the same guardrail pattern. Hard commands, auth, destructive confirmations, and safe fallback should continue to work when AI is disabled, the key is missing, or SumoPod is unavailable.
 
 Local checks:
 
@@ -140,13 +137,10 @@ bot feel faster. When investigating slow replies, separate these timings:
 
 Healthy direction:
 
-- normal deterministic commands should stay fast
-- quick AI extraction uses compact prompts, small JSON output, and smaller
-  code-level timeout/token caps
-- deep AI analysis may take longer but should still return within the configured
-  timeout
-- repeated insight-style requests may be cached later if the data has not
-  changed
+- hard system commands should stay fast
+- quick AI intent routing uses compact prompts, small JSON output, and smaller code-level timeout/token caps
+- deep AI analysis may take longer but should still return within the configured timeout
+- repeated insight-style requests may be cached later if the data has not changed
 
 Do not fix slow responses by simply removing AI from the product direction.
 Prefer prompt compaction, smaller AI payloads, profile-specific timeouts, and
@@ -173,8 +167,7 @@ Check that:
   Telegram chat.
 - `koreksi kategori 12 kopi` updates only that transaction and stores the note
   as an alias when it is usable.
-- Ambiguous AI transaction candidates should wait for `pemasukan`,
-  `pengeluaran`, or `/batal` before saving anything.
+- Ambiguous AI transaction candidates should wait for numbered clarification: `1` expense, `2` income, or `3` not a transaction.
 - Reports display friendly category labels, not raw technical labels, whenever
   possible.
 
@@ -227,8 +220,7 @@ Check that:
 Check that:
 
 - `dompet tambah cash` and `dompet tambah bca` create per-chat wallet records.
-- `buat dompet cash`, `bikin dompet bca`, `dompet`, and `saldo dompet` should
-  resolve through the same deterministic wallet command path.
+- `buat dompet cash`, `bikin dompet bca`, `dompet`, and `saldo dompet` should resolve through validated wallet intent handling.
 - `default dompet bank` should persist as the fallback wallet for later
   expenses without an explicit wallet.
 - `saldo dompet bank` should return the tracked wallet balance only.
@@ -244,8 +236,7 @@ Check that:
   metadata, not as transfers.
 - when an expense has no explicit wallet, the app should use the default wallet
   first, then a single available wallet, and otherwise ask for clarification.
-- `transaksi rutin tambah bulanan -500k kos kategori housing` stores a rule but
-  does not write a transaction until the processor runs.
+- `transaksi rutin tambah bulanan 500k kos kategori housing` stores a rule but does not write a transaction until the processor runs.
 - `npm.cmd run process:recurring` should skip invalid templates and advance the
   next run only after saving valid transactions.
 - `tagihan tambah wifi 250k tiap 15 kategori bills` stores a per-chat reminder.
@@ -307,11 +298,7 @@ The current Telegram command menu includes:
 
 Text commands still cover some operational flows such as `transfer ...`,
 `transaksi rutin ...`, `hapus rutin ...`, and `tagihan tambah ...`.
-Malformed wallet or transfer text should return deterministic format guidance
-instead of going straight to AI extraction.
-AI-assisted wallet intent classification may help on natural phrases such as
-`saldo bank 70230`, but the app must still validate the action and ask for
-confirmation before executing a wallet balance set.
+Malformed wallet or transfer text should return numbered clarification or a safe validation error instead of writing partial records. AI-first wallet intent routing may help on natural phrases such as `saldo bank 70230`, but the app must still validate the action and ask for confirmation before executing a wallet balance set.
 
 Webhook incident note:
 

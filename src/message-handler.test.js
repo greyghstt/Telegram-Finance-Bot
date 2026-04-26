@@ -15,12 +15,37 @@ async function createTestDatabase() {
   return database;
 }
 
+async function saveAiTransaction(database, { type = "expense", amount = 20000, note = "bensin", category = "transport", wallet = null, chatId } = {}) {
+  return handleMessage(database, `${note} ${amount}`, {
+    chatId,
+    routeFinancialIntent: async () => ({
+      ok: true,
+      intent: "transaction_create",
+      confidence: 0.9,
+      transactions: [{ type, amount, note, category, wallet, confidence: 0.9 }],
+    }),
+  });
+}
+
 describe("message handler", () => {
-  it("saves transaction messages and returns a reply", async () => {
+  it("saves AI-routed transaction messages and returns a reply", async () => {
     const database = await createTestDatabase();
-    const result = await handleMessage(database, "-20k bensin");
+    let routeCalls = 0;
+    const result = await handleMessage(database, "bensin 20k pakai cash", {
+      routeFinancialIntent: async () => {
+        routeCalls += 1;
+        return {
+          ok: true,
+          intent: "transaction_create",
+          confidence: 0.9,
+          transactions: [{ type: "expense", amount: 20000, note: "bensin", category: "transport", wallet: "cash", confidence: 0.9 }],
+        };
+      },
+    });
 
     assert.equal(result.ok, true);
+    assert.equal(result.kind, "ai_transactions");
+    assert.equal(routeCalls, 1);
     assert.equal(result.saved.length, 1);
     assert.equal(result.summary.balance, -20000);
     assert.match(result.reply, /Tersimpan: 1 transaksi/);
@@ -31,17 +56,23 @@ describe("message handler", () => {
     const database = await createTestDatabase();
     const logs = [];
 
-    const result = await handleMessage(database, "-20k bensin rahasia", {
+    const result = await handleMessage(database, "beli bensin 20k rahasia", {
       logger: (payload) => logs.push(payload),
+      routeFinancialIntent: async () => ({
+        ok: true,
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [{ type: "expense", amount: 20000, note: "bensin", category: "transport", confidence: 0.9 }],
+      }),
     });
 
     assert.equal(result.ok, true);
     assert.equal(result.metrics.dbQueries >= 2, true);
-    assert.equal(result.metrics.aiCalls, 0);
+    assert.equal(result.metrics.aiCalls, 1);
     assert.equal(Number.isFinite(result.metrics.totalMs), true);
     assert.equal(logs.length, 1);
     assert.equal(logs[0].event, "message_performance");
-    assert.equal(logs[0].kind, "transaction");
+    assert.equal(logs[0].kind, "ai_transactions");
     assert.doesNotMatch(JSON.stringify(logs[0]), /rahasia/);
   });
 
@@ -60,9 +91,9 @@ describe("message handler", () => {
     assert.equal(income.summary.balance, 480000);
   });
 
-  it("supports wallet-oriented natural income phrases without AI", async () => {
+  it("routes wallet-oriented natural income phrases through AI first", async () => {
     const database = await createTestDatabase();
-    let extractCalls = 0;
+    let routeCalls = 0;
 
     const examples = [
       ["topup gopay 100k", "gopay", 100000],
@@ -73,9 +104,14 @@ describe("message handler", () => {
 
     for (const [message, wallet, amount] of examples) {
       const result = await handleMessage(database, message, {
-        extractTransactionCandidates: async () => {
-          extractCalls += 1;
-          return { ok: false };
+        routeFinancialIntent: async () => {
+          routeCalls += 1;
+          return {
+            ok: true,
+            intent: "transaction_create",
+            confidence: 0.9,
+            transactions: [{ type: "income", amount, note: "saldo masuk", category: "income", wallet, confidence: 0.9 }],
+          };
         },
       });
 
@@ -85,7 +121,7 @@ describe("message handler", () => {
       assert.equal(result.saved.at(-1).amount, amount);
     }
 
-    assert.equal(extractCalls, 0);
+    assert.equal(routeCalls, examples.length);
   });
 
   it("supports broader wallet and transfer command variants", async () => {
@@ -93,7 +129,15 @@ describe("message handler", () => {
 
     await handleMessage(database, "buat dompet cash", { chatId: 123 });
     await handleMessage(database, "bikin dompet bca", { chatId: 123 });
-    await handleMessage(database, "masuk ke bca 500k gaji", { chatId: 123 });
+    await handleMessage(database, "masuk ke bca 500k gaji", {
+      chatId: 123,
+      routeFinancialIntent: async () => ({
+        ok: true,
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [{ type: "income", amount: 500000, note: "gaji", category: "income", wallet: "bca", confidence: 0.9 }],
+      }),
+    });
 
     const transferA = await handleMessage(database, "transfer dari bca ke cash 120k isi tunai", { chatId: 123 });
     const transferB = await handleMessage(database, "pindah 30k dari cash ke bca balikin", { chatId: 123 });
@@ -148,13 +192,13 @@ describe("message handler", () => {
     assert.match(result.reply, /dompet mana/i);
   });
 
-  it("uses AI-assisted wallet intent classification for ambiguous wallet balance text", async () => {
+  it("uses AI router for ambiguous wallet balance text", async () => {
     const database = await createTestDatabase();
 
     await handleMessage(database, "dompet tambah bank", { chatId: 123 });
     const result = await handleMessage(database, "saldo bank 70230", {
       chatId: 123,
-      classifyWalletIntent: async () => ({
+      routeFinancialIntent: async () => ({
         ok: true,
         intent: "wallet_balance_set",
         wallet: "bank",
@@ -166,65 +210,84 @@ describe("message handler", () => {
 
     assert.equal(result.kind, "clarification");
     assert.equal(result.command, "wallet_action_clarify");
-    assert.match(result.reply, /set saldo dompet bank 70230/i);
+    assert.match(result.reply, /1\. Set saldo dompet/);
+    assert.match(result.reply, /2\. Catat sebagai pemasukan/);
+    assert.match(result.reply, /3\. Batal/);
   });
 
-  it("returns deterministic transfer guidance and skips AI for malformed transfer text", async () => {
+  it("routes malformed transfer-like text through AI then falls back to numbered clarification", async () => {
     const database = await createTestDatabase();
-    let extractCalls = 0;
+    let routeCalls = 0;
 
     const result = await handleMessage(database, "transfer dari bca ke cash", {
-      extractTransactionCandidates: async () => {
-        extractCalls += 1;
-        return { ok: true, candidates: [] };
+      routeFinancialIntent: async () => {
+        routeCalls += 1;
+        return { ok: true, intent: "unknown_or_ambiguous", confidence: 0.8 };
       },
     });
 
     assert.equal(result.ok, false);
-    assert.match(result.reply, /Format transfer belum lengkap/i);
-    assert.equal(extractCalls, 0);
+    assert.match(result.reply, /1\. Catat sebagai pengeluaran/);
+    assert.match(result.reply, /2\. Catat sebagai pemasukan/);
+    assert.match(result.reply, /3\. Bukan transaksi/);
+    assert.equal(routeCalls, 1);
   });
 
-  it("returns deterministic wallet guidance and skips AI for malformed wallet text", async () => {
+  it("routes malformed wallet-like text through AI then falls back to numbered clarification", async () => {
     const database = await createTestDatabase();
-    let extractCalls = 0;
+    let routeCalls = 0;
 
     const result = await handleMessage(database, "topup gopay", {
-      extractTransactionCandidates: async () => {
-        extractCalls += 1;
-        return { ok: true, candidates: [] };
+      routeFinancialIntent: async () => {
+        routeCalls += 1;
+        return { ok: true, intent: "unknown_or_ambiguous", confidence: 0.8 };
       },
     });
 
     assert.equal(result.ok, false);
-    assert.match(result.reply, /Format dompet belum lengkap/i);
-    assert.equal(extractCalls, 0);
+    assert.match(result.reply, /1\. Catat sebagai pengeluaran/);
+    assert.match(result.reply, /2\. Catat sebagai pemasukan/);
+    assert.match(result.reply, /3\. Bukan transaksi/);
+    assert.equal(routeCalls, 1);
   });
 
-  it("parses clear natural expense without sign using intent keywords", async () => {
+  it("saves clear natural expense from AI router intent", async () => {
     const database = await createTestDatabase();
 
-    const result = await handleMessage(database, "beli bensin 20 ribu pakai cash");
+    const result = await handleMessage(database, "beli bensin 20 ribu pakai cash", {
+      routeFinancialIntent: async () => ({
+        ok: true,
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [{ type: "expense", amount: 20000, note: "bensin pakai cash", category: "transport", confidence: 0.9 }],
+      }),
+    });
 
     assert.equal(result.ok, true);
-    assert.equal(result.kind, "transaction");
+    assert.equal(result.kind, "ai_transactions");
     assert.equal(result.saved[0].type, "expense");
     assert.equal(result.saved[0].amount, 20000);
     assert.match(result.saved[0].note, /bensin/i);
-    assert.equal(result.saved[0].paymentMethod, "cash");
   });
 
-  it("parses clear natural income without sign using intent keywords", async () => {
+  it("saves clear natural income from AI router intent", async () => {
     const database = await createTestDatabase();
 
-    const result = await handleMessage(database, "gaji freelance masuk 1,5 juta ke bca");
+    const result = await handleMessage(database, "gaji freelance masuk 1,5 juta ke bca", {
+      routeFinancialIntent: async () => ({
+        ok: true,
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [{ type: "income", amount: 1500000, note: "gaji freelance", category: "income", wallet: "bca", confidence: 0.9 }],
+      }),
+    });
 
     assert.equal(result.ok, true);
-    assert.equal(result.kind, "transaction");
+    assert.equal(result.kind, "ai_transactions");
     assert.equal(result.saved[0].type, "income");
     assert.equal(result.saved[0].amount, 1500000);
     assert.match(result.saved[0].note, /gaji freelance/i);
-    assert.equal(result.saved[0].paymentMethod, "bank_transfer");
+    assert.equal(result.saved[0].wallet, "bca");
   });
 
   it("asks for explicit type when balance-style input is ambiguous", async () => {
@@ -233,15 +296,26 @@ describe("message handler", () => {
     const result = await handleMessage(database, "saldo bank 70000");
 
     assert.equal(result.ok, false);
-    assert.match(result.reply, /Tipe transaksi belum jelas/);
+    assert.match(result.reply, /1\. Catat sebagai pengeluaran/);
+    assert.match(result.reply, /2\. Catat sebagai pemasukan/);
+    assert.match(result.reply, /3\. Bukan transaksi/);
   });
 
-  it("parses natural transfer intent with wallet names and amount", async () => {
+  it("routes natural transfer intent through AI router", async () => {
     const database = await createTestDatabase();
     await handleMessage(database, "dompet tambah bca");
     await handleMessage(database, "dompet tambah cash");
 
-    const result = await handleMessage(database, "bca ke cash 50 ribu");
+    const result = await handleMessage(database, "bca ke cash 50 ribu", {
+      routeFinancialIntent: async () => ({
+        ok: true,
+        intent: "wallet_transfer",
+        confidence: 0.9,
+        fromWallet: "bca",
+        toWallet: "cash",
+        amount: 50000,
+      }),
+    });
 
     assert.equal(result.ok, true);
     assert.equal(result.command, "transfer_save");
@@ -252,10 +326,11 @@ describe("message handler", () => {
 
   it("routes natural finance question without tanya prefix", async () => {
     const database = await createTestDatabase();
-    await handleMessage(database, "-20k bensin");
-    await handleMessage(database, "-35k makan");
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport" });
+    await saveAiTransaction(database, { type: "expense", amount: 35000, note: "makan", category: "food" });
 
     const result = await handleMessage(database, "bulan ini boros di mana", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "finance_question", confidence: 0.9, question: "bulan ini boros di mana" }),
       answerFinanceQuestion: async () => ({ ok: true, content: "Paling banyak di transport." }),
     });
 
@@ -266,7 +341,9 @@ describe("message handler", () => {
   it("routes budget set with natural phrasing", async () => {
     const database = await createTestDatabase();
 
-    const result = await handleMessage(database, "budget makan 700 ribu bulan ini");
+    const result = await handleMessage(database, "budget makan 700 ribu bulan ini", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "budget_set", confidence: 0.9, category: "makan", amount: 700000, period: "monthly" }),
+    });
 
     assert.equal(result.ok, true);
     assert.equal(result.command, "budget_set");
@@ -289,9 +366,11 @@ describe("message handler", () => {
     const database = await createTestDatabase();
 
     const result = await handleMessage(database, "bensin 20 ribu dan makan ayam 15 ribu tadi", {
-      extractTransactionCandidates: async () => ({
+      routeFinancialIntent: async () => ({
         ok: true,
-        candidates: [
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [
           {
             type: "expense",
             amount: 20000,
@@ -319,9 +398,11 @@ describe("message handler", () => {
     const database = await createTestDatabase();
 
     const result = await handleMessage(database, "saldo bank 50 ribu", {
-      extractTransactionCandidates: async () => ({
+      routeFinancialIntent: async () => ({
         ok: true,
-        candidates: [
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [
           {
             type: "unknown",
             amount: 50000,
@@ -334,16 +415,20 @@ describe("message handler", () => {
     });
 
     assert.equal(result.kind, "clarification");
-    assert.match(result.reply, /Belum ada transaksi yang disimpan/);
+    assert.match(result.reply, /1\. Pengeluaran/);
+    assert.match(result.reply, /2\. Pemasukan/);
+    assert.match(result.reply, /3\. Bukan transaksi/);
   });
 
   it("rejects low-confidence AI extracted transactions", async () => {
     const database = await createTestDatabase();
 
     const result = await handleMessage(database, "catatan sesuatu 20 ribu", {
-      extractTransactionCandidates: async () => ({
+      routeFinancialIntent: async () => ({
         ok: true,
-        candidates: [
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [
           {
             type: "expense",
             amount: 20000,
@@ -371,11 +456,13 @@ describe("message handler", () => {
     for (const [message, note, suggestedCategory, expectedCategory] of examples) {
       const database = await createTestDatabase();
       const result = await handleMessage(database, message, {
-        extractTransactionCandidates: async () => ({
+        routeFinancialIntent: async () => ({
           ok: true,
           profile: "quick",
           latencyMs: 1,
-          candidates: [
+          intent: "transaction_create",
+          confidence: 0.9,
+          transactions: [
             {
               type: "expense",
               amount: 20000,
@@ -419,9 +506,11 @@ describe("message handler", () => {
 
     const result = await handleMessage(database, "ngopi 25k", {
       chatId: 123,
-      extractTransactionCandidates: async () => ({
+      routeFinancialIntent: async () => ({
         ok: true,
-        candidates: [
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [
           {
             type: "expense",
             amount: 25000,
@@ -440,7 +529,7 @@ describe("message handler", () => {
   it("corrects transaction categories and stores a note alias", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-25k ngopi kategori other", { chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 25000, note: "ngopi", category: "other", chatId: 123 });
     const corrected = await handleMessage(database, "koreksi kategori 1 kopi", { chatId: 123 });
     const transactions = await listTransactions(database);
     const aliases = await listCategoryAliases(database, 123);
@@ -455,8 +544,8 @@ describe("message handler", () => {
   it("handles balance and history commands", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "+100k refund");
-    await handleMessage(database, "-20k bensin");
+    await saveAiTransaction(database, { type: "income", amount: 100000, note: "refund", category: "income" });
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport" });
 
     const balance = await handleMessage(database, "saldo");
     const history = await handleMessage(database, "riwayat");
@@ -472,7 +561,7 @@ describe("message handler", () => {
     const database = await createTestDatabase();
     const now = new Date("2026-04-16T10:00:00.000Z");
 
-    await handleMessage(database, "-20k makan");
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "makan", category: "food" });
 
     const report = await handleMessage(database, "hari ini", { now });
 
@@ -484,7 +573,7 @@ describe("message handler", () => {
   it("shows timestamps in period reports that contain recent transactions", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-20k makan");
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "makan", category: "food" });
 
     const report = await handleMessage(database, "hari ini");
 
@@ -495,8 +584,8 @@ describe("message handler", () => {
   it("deletes the last transaction", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-10k makan");
-    await handleMessage(database, "+50k cashback");
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "makan", category: "food" });
+    await saveAiTransaction(database, { type: "income", amount: 50000, note: "cashback", category: "income" });
 
     const deleted = await handleMessage(database, "hapus terakhir");
 
@@ -511,8 +600,8 @@ describe("message handler", () => {
   it("undoes the last soft delete", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-10k makan", { chatId: 123 });
-    await handleMessage(database, "+50k cashback", { chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "makan", category: "food", chatId: 123 });
+    await saveAiTransaction(database, { type: "income", amount: 50000, note: "cashback", category: "income", chatId: 123 });
     await handleMessage(database, "hapus terakhir", { chatId: 123 });
 
     const restored = await handleMessage(database, "undo", { chatId: 123 });
@@ -526,8 +615,8 @@ describe("message handler", () => {
   it("deletes a transaction by id", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-10k makan");
-    await handleMessage(database, "-20k bensin");
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "makan", category: "food" });
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport" });
 
     const deleted = await handleMessage(database, "hapus 1");
     const history = await handleMessage(database, "riwayat");
@@ -542,9 +631,9 @@ describe("message handler", () => {
   it("edits a transaction by id", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-10k makan", { chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "makan", category: "food", chatId: 123 });
 
-    const updated = await handleMessage(database, "edit 1 +25k refund", { chatId: 123 });
+    const updated = await handleMessage(database, "edit 1 refund 25k", { chatId: 123, defaultTransactionType: "income" });
     const history = await handleMessage(database, "riwayat", { chatId: 123 });
 
     assert.equal(updated.command, "edit_by_id");
@@ -558,8 +647,8 @@ describe("message handler", () => {
   it("searches transactions", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-10k makan");
-    await handleMessage(database, "-20k bensin");
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "makan", category: "food" });
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport" });
 
     const result = await handleMessage(database, "cari bensin");
 
@@ -572,8 +661,8 @@ describe("message handler", () => {
   it("shows a category report", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-10k makan");
-    await handleMessage(database, "-20k bensin");
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "makan", category: "food" });
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport" });
 
     const result = await handleMessage(database, "kategori");
 
@@ -586,8 +675,8 @@ describe("message handler", () => {
   it("returns a read-only manual insight fallback when AI is disabled", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "+100k refund");
-    await handleMessage(database, "-20k makan");
+    await saveAiTransaction(database, { type: "income", amount: 100000, note: "refund", category: "income" });
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "makan", category: "food" });
 
     const result = await handleMessage(database, "insight", {
       generateFinanceInsight: async (data) => ({
@@ -611,7 +700,7 @@ describe("message handler", () => {
   it("uses AI insight content when generation succeeds", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-20k makan");
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "makan", category: "food" });
 
     const result = await handleMessage(database, "analisa", {
       generateFinanceInsight: async (data) => ({
@@ -632,8 +721,8 @@ describe("message handler", () => {
     let capturedQuestion;
     let capturedData;
 
-    await handleMessage(database, "-20k bensin");
-    await handleMessage(database, "-15k makan");
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport" });
+    await saveAiTransaction(database, { type: "expense", amount: 15000, note: "makan", category: "food" });
 
     const result = await handleMessage(database, "tanya berapa total bensin bulan ini?", {
       now,
@@ -662,7 +751,7 @@ describe("message handler", () => {
   it("returns manual finance question fallback when AI is unavailable", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-20k bensin");
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport" });
 
     const result = await handleMessage(database, "/tanya bulan ini boros di mana?", {
       answerFinanceQuestion: async () => ({
@@ -681,8 +770,8 @@ describe("message handler", () => {
   it("returns manual weekly ai report fallback when AI is unavailable", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "+2jt gaji", { chatId: 123 });
-    await handleMessage(database, "-200k transport mingguan", { chatId: 123 });
+    await saveAiTransaction(database, { type: "income", amount: 2000000, note: "gaji", category: "income", chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 200000, note: "transport mingguan", category: "transport", chatId: 123 });
     await handleMessage(database, "budget minggu global 300k", { chatId: 123 });
     await handleMessage(database, "dompet tambah cash", { chatId: 123 });
 
@@ -699,8 +788,8 @@ describe("message handler", () => {
   it("returns manual monthly ai review fallback when AI is unavailable", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "+5jt gaji", { chatId: 123 });
-    await handleMessage(database, "-700k kos kategori housing", { chatId: 123 });
+    await saveAiTransaction(database, { type: "income", amount: 5000000, note: "gaji", category: "income", chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 700000, note: "kos", category: "housing", chatId: 123 });
     await handleMessage(database, "budget housing 1jt", { chatId: 123 });
 
     const result = await handleMessage(database, "review ai bulan ini", {
@@ -716,9 +805,9 @@ describe("message handler", () => {
   it("returns anomaly report from app-calculated candidates with AI fallback", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-20k parkir", { chatId: 123 });
-    await handleMessage(database, "-25k parkir", { chatId: 123 });
-    await handleMessage(database, "-200k parkir bandara", { chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "parkir", category: "transport", chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 25000, note: "parkir", category: "transport", chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 200000, note: "parkir bandara", category: "transport", chatId: 123 });
 
     const result = await handleMessage(database, "cek anomali", {
       chatId: 123,
@@ -734,7 +823,7 @@ describe("message handler", () => {
   it("sets and shows monthly budget progress", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-450k makan kategori food");
+    await saveAiTransaction(database, { type: "expense", amount: 450000, note: "makan", category: "food" });
     const saved = await handleMessage(database, "budget food 700k", { chatId: 123 });
     const listed = await handleMessage(database, "cek budget", { chatId: 123 });
 
@@ -749,8 +838,8 @@ describe("message handler", () => {
   it("supports global and weekly budget commands", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-90k makan kategori food");
-    await handleMessage(database, "-10k parkir kategori transport");
+    await saveAiTransaction(database, { type: "expense", amount: 90000, note: "makan", category: "food" });
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "parkir", category: "transport" });
 
     const saved = await handleMessage(database, "budget minggu global 120k", { chatId: 123 });
     const listed = await handleMessage(database, "cek budget minggu", { chatId: 123 });
@@ -767,7 +856,7 @@ describe("message handler", () => {
 
     await handleMessage(database, "dompet tambah cash", { chatId: 123 });
     await handleMessage(database, "dompet tambah bca", { chatId: 123 });
-    await handleMessage(database, "+500k gaji dompet bca", { chatId: 123 });
+    await saveAiTransaction(database, { type: "income", amount: 500000, note: "gaji", category: "income", wallet: "bca", chatId: 123 });
     await handleMessage(database, "transfer bca cash 100k isi cash", { chatId: 123 });
 
     const wallets = await handleMessage(database, "dompet", { chatId: 123 });
@@ -783,7 +872,7 @@ describe("message handler", () => {
   it("stores recurring transactions and bill reminders", async () => {
     const database = await createTestDatabase();
 
-    const recurring = await handleMessage(database, "transaksi rutin tambah bulanan -500k kos kategori housing", { chatId: 123 });
+    const recurring = await handleMessage(database, "transaksi rutin tambah bulanan kos 500k kategori housing", { chatId: 123 });
     const recurringList = await handleMessage(database, "transaksi rutin", { chatId: 123 });
     const bill = await handleMessage(database, "tagihan tambah wifi 250k tiap 15 kategori bills", { chatId: 123 });
     const billList = await handleMessage(database, "tagihan", { chatId: 123 });
@@ -826,7 +915,7 @@ describe("message handler", () => {
   it("returns manual budget suggestion fallback", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-90k makan kategori food");
+    await saveAiTransaction(database, { type: "expense", amount: 90000, note: "makan", category: "food" });
     await handleMessage(database, "budget food 100k", { chatId: 123 });
 
     const result = await handleMessage(database, "saran budget", {
@@ -846,7 +935,7 @@ describe("message handler", () => {
   it("wraps and sanitizes AI budget suggestions", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-90k makan kategori food");
+    await saveAiTransaction(database, { type: "expense", amount: 90000, note: "makan", category: "food" });
     await handleMessage(database, "budget food 100k", { chatId: 123 });
 
     const result = await handleMessage(database, "saran budget", {
@@ -867,7 +956,7 @@ describe("message handler", () => {
   it("includes local timestamps in export csv", async () => {
     const database = await createTestDatabase();
 
-    await handleMessage(database, "-10k makan");
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "makan", category: "food" });
 
     const exported = await handleMessage(database, "export csv");
 

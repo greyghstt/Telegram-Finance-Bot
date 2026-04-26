@@ -158,12 +158,9 @@ initialization path at runtime whenever `DATABASE_URL` is present. This keeps
 additive columns such as soft-delete and session payload fields from drifting
 behind the deployed code on Vercel.
 
-## Transaction Format
+## AI-First Transaction Input
 
-The recommended flow is to choose an input mode first:
-
-- `/pemasukan`, then send the amount and note.
-- `/pengeluaran`, then send the amount and note.
+The main flow is natural Telegram text. Normal user messages go to the AI intent router first, then the app validates the structured intent before saving or executing anything.
 
 Natural input examples:
 
@@ -183,16 +180,23 @@ Batch transactions:
 3. refund 100k masuk
 ```
 
-Examples after selecting an input mode:
+Explicit input modes are still available when you want to choose the transaction type before sending the next message:
 
 ```text
-20k bensin
-12rb makan
+/pemasukan
 500k gaji
-makan ayam 27rb via qris kemarin #kantin
+
+/pengeluaran
+20k bensin
 ```
 
-If the message is ambiguous, the bot asks you to choose `/pemasukan` or `/pengeluaran` before saving.
+If the message is ambiguous, the bot asks for numbered clarification and saves nothing until the user chooses:
+
+```text
+1. Catat sebagai pengeluaran
+2. Catat sebagai pemasukan
+3. Bukan transaksi
+```
 
 Supported amount examples:
 
@@ -270,7 +274,7 @@ dompet
 tagihan
 dompet tambah cash
 transfer bca cash 50k
-transaksi rutin tambah bulanan -500k kos kategori housing
+transaksi rutin tambah bulanan 500k kos kategori housing
 transaksi rutin
 hapus rutin 2
 tagihan tambah wifi 250k tiap 15 kategori bills
@@ -302,19 +306,14 @@ Input modes:
 - `/pengeluaran`, then the next message can be `20k bensin` or `beli bensin 20k`.
 - `/batal` cancels the active input mode.
 
-Deterministic input routing now prefers manual handling before AI:
+AI-first routing:
 
-- explicit commands and slash commands
-- manual transaction parsing, including amount-first and note-first variants
-- wallet and transfer intents such as `dompet tambah cash`, `saldo dompet`,
-  `saldo dompet bank`, `set saldo dompet bank 70k`,
-  `transfer dari bca ke cash 50k`, and `pindah 50k dari cash ke bca`
-- wallet-oriented income phrases such as `topup gopay 100k`,
-  `isi saldo 150k ke dana`, `saldo awal cash 200k`, and
-  `masuk ke bca 500k gaji`
-
-If a wallet or transfer message is incomplete, the bot returns a deterministic
-format hint instead of sending the text to AI.
+- hard commands, session commands, auth, and destructive confirmations stay rule-based
+- normal finance text goes to the AI intent router first
+- the router returns structured JSON intent such as transaction create, transaction clarification, finance question, budget set, wallet transfer, or wallet balance action
+- the app validates intent fields, amounts, transaction type, wallet names, and confidence before executing
+- ambiguous or risky input returns numbered clarification instead of format guidance
+- if AI is disabled or unavailable, the app uses a safe fallback and does not save uncertain data
 
 Read-only AI insight:
 
@@ -453,20 +452,9 @@ refund teman 50 ribu
 gaji freelance masuk 1,5 juta
 ```
 
-AI may extract transaction candidates, but the app validates every candidate
-before saving. Ambiguous input asks the user to reply `pemasukan`,
-`pengeluaran`, or `/batal`; nothing is saved before that clarification. Natural
-extraction uses the quick AI path with compact JSON output.
-Wallet creation, wallet balance phrases, transfers, and explicit input-mode
-messages are routed through deterministic parsing first so AI is not used for
-cases that can already be handled safely by rules.
-AI is used more broadly for wallet-aware intent understanding when text is still
-natural or ambiguous, for example `saldo bank 70230` or `bayar makan 20k pakai
-gopay`. Even then, the app remains the final validator and may ask for
-confirmation before executing sensitive actions such as wallet balance set.
-AI may suggest a category, but the app normalizes it to existing categories
-such as `food`, `education`, `transport`, or `housing`; unknown suggestions
-fall back to `other`.
+Natural extraction uses the quick AI path with compact JSON output. The app validates every candidate before saving and rejects uncertain output. Ambiguous input asks the user to reply with a numbered choice: `1` for expense, `2` for income, or `3` for not a transaction.
+
+AI also routes wallet-aware intent such as `saldo bank 70230` or `bayar makan 20k pakai gopay`. The app remains the final validator and may ask for confirmation before executing sensitive actions such as wallet balance set. AI may suggest a category, but the app normalizes it to existing categories such as `food`, `education`, `transport`, or `housing`; unknown suggestions fall back to `other`.
 
 Category management:
 
@@ -488,10 +476,7 @@ hapus terakhir
 undo
 ```
 
-`edit` replaces the stored transaction content for that ID using the normal
-manual parser. `hapus terakhir` and `hapus 12` now use soft delete, so active
-reports ignore the deleted row. `undo` restores the latest deleted transaction
-for the current Telegram chat only.
+`edit` replaces the stored transaction content for that ID using the same validated transaction path. `hapus terakhir` and `hapus 12` use soft delete, so active reports ignore the deleted row. `undo` restores the latest deleted transaction for the current Telegram chat only.
 
 Reset flow:
 
@@ -597,21 +582,19 @@ Invoke-RestMethod `
 
 ## Next Development Direction
 
-The current phase is **safe natural input with deterministic validation**.
+The current phase is **AI-first natural finance input with app-side validation**.
 
 Goals:
 
-- Prefer deterministic parsing for clear income, expense, wallet, transfer,
-  budget, and report intents.
-- Use AI only when rules cannot safely understand the message.
-- Let users add custom categories without letting AI create messy categories
-  silently.
+- Route normal finance text through structured AI intent first.
+- Keep hard commands, auth, destructive confirmations, and safe fallbacks rule-based.
+- Let users add custom categories without letting AI create messy categories silently.
 - Store aliases and corrections per chat.
 
 Recommended priority:
 
 1. Test natural input, wallet, transfer, budget, and deletion clarification from Telegram.
-2. Watch AI extraction quality for messages that deterministic parsing rejects.
+2. Watch AI intent quality for natural messages and ambiguous cases.
 3. Add merge/rename category commands if category usage grows.
 
 ## License

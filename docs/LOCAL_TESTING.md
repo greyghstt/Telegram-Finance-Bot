@@ -1,8 +1,7 @@
 # Local Testing Guide
 
 Use this guide to test Telegram Finance Bot without a live Telegram webhook.
-The goal is to verify the parser, database, commands, and bot replies before
-running with a real Telegram token.
+The goal is to verify the AI-first message flow, database, commands, and bot replies before running with a real Telegram token.
 
 The bot command language remains Indonesian for now, so the examples below use
 Indonesian commands and transaction notes.
@@ -18,7 +17,8 @@ npm.cmd run scan:secrets
 
 Covered areas:
 
-- Amount parser and command parser.
+- Command parsing for explicit system actions.
+- AI-first transaction intent routing with app-side validation.
 - In-memory SQLite database.
 - Transaction saving.
 - Balance summary.
@@ -106,9 +106,7 @@ edit 3 beli makan ayam 30k
 help
 ```
 
-The current local scenario focuses on deterministic natural input. The parser
-also accepts input-mode messages after `/pemasukan` or `/pengeluaran`, and
-wallet-oriented income phrases such as `topup gopay 100k` before considering AI.
+The current local scenario focuses on AI-first natural finance input. Explicit input-mode messages after `/pemasukan` or `/pengeluaran` are still supported, but normal finance text should be routed through structured AI intent and then validated by the app. Ambiguous transaction text should produce the numbered `1/2/3` clarification flow before anything is saved.
 
 It uses a temporary database:
 
@@ -289,7 +287,7 @@ Invoke-RestMethod `
   -Uri "http://localhost:3000/messages" `
   -Method Post `
   -ContentType "application/json" `
-  -Body '{"message":"transaksi rutin tambah bulanan -500k kos kategori housing"}'
+  -Body '{"message":"transaksi rutin tambah bulanan 500k kos kategori housing"}'
 ```
 
 ```powershell
@@ -305,8 +303,7 @@ Expected behavior:
 - wallet-tagged transactions such as `beli bensin 20k dompet cash` change wallet
   balances and still count as normal expenses
 - transfers move value between wallets only and do not change balance summary
-- `transfer dari bca ke cash 50k` and `pindah 30k dari cash ke bca` resolve to
-  the same deterministic transfer flow as `transfer bca cash 50k`
+- `transfer dari bca ke cash 50k` and `pindah 30k dari cash ke bca` resolve to the same validated wallet transfer intent as `transfer bca cash 50k`
 - `topup gopay 100k`, `isi saldo 150k ke dana`, and `masuk ke bca 500k gaji`
   are treated as income transactions with wallet metadata
 - `set saldo dompet bank 70230` and `tambah saldo dompet bank 20k` change only
@@ -327,14 +324,9 @@ Invoke-RestMethod `
   -Body '{"message":"tadi beli bensin 20 ribu dan makan ayam 15 ribu"}'
 ```
 
-With AI disabled or unavailable, this falls back to manual format guidance.
-With AI enabled, candidates are saved only after app-side validation.
-Wallet and transfer phrases should not use AI when the deterministic grammar is
-already sufficient. Incomplete wallet or transfer messages should return a
-format hint instead of an AI validation error.
-Ambiguous wallet-aware phrases may still use AI for intent classification, but
-the app must validate the suggested action and ask for confirmation when the
-action looks like wallet balance set.
+With AI enabled, candidates are saved only after app-side validation. With AI disabled or unavailable, the bot should use a safe fallback and avoid saving uncertain natural input.
+
+Wallet and transfer phrases should be routed as structured intent, then validated by the app. Incomplete or ambiguous messages should return numbered clarification or a safe validation error instead of saving data. Sensitive wallet balance actions should still ask for confirmation when inferred from natural text.
 
 ### Performance Checks
 
@@ -467,7 +459,7 @@ Invoke-RestMethod `
   -Uri "http://localhost:3000/messages" `
   -Method Post `
   -ContentType "application/json" `
-  -Body '{"message":"edit 1 -25k makan kategori food"}'
+  -Body '{"message":"edit 1 makan 25k kategori food"}'
 ```
 
 ## 4. When to Test Live Telegram

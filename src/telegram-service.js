@@ -12,7 +12,6 @@ import {
   setChatSessionMode,
   setChatSessionPendingAction,
 } from "./database.js";
-import { parseTransactionLine } from "./parser.js";
 
 export const removeKeyboard = { remove_keyboard: true };
 
@@ -33,8 +32,8 @@ export const mainKeyboard = {
 
 export const BOT_COMMANDS = [
   { command: "start", description: "Mulai bot dan lihat contoh format" },
-  { command: "pemasukan", description: "Input pemasukan tanpa tanda +" },
-  { command: "pengeluaran", description: "Input pengeluaran tanpa tanda -" },
+  { command: "pemasukan", description: "Input pemasukan natural" },
+  { command: "pengeluaran", description: "Input pengeluaran natural" },
   { command: "saldo", description: "Cek saldo saat ini" },
   { command: "hariini", description: "Laporan hari ini" },
   { command: "mingguini", description: "Laporan minggu ini" },
@@ -443,14 +442,21 @@ async function handlePendingTransactionClarification(database, token, chatId, te
     ? session.pendingPayload.candidates
     : [];
 
+  if (type === "cancel") {
+    await clearChatSessionPendingAction(database, chatId);
+    await sendTelegramMessage(token, chatId, "Oke, tidak ada transaksi yang disimpan.", { replyMarkup: mainKeyboard });
+    return { ok: true, kind: "transaction_clarification_cancelled" };
+  }
+
   if (!type) {
     await sendTelegramMessage(
       token,
       chatId,
       [
-        "Pilih tipe transaksi dulu:",
-        "pemasukan",
-        "pengeluaran",
+        "Pilih salah satu:",
+        "1. Pengeluaran",
+        "2. Pemasukan",
+        "3. Bukan transaksi",
         "",
         "Ketik /batal untuk membatalkan.",
       ].join("\n"),
@@ -473,15 +479,11 @@ async function handlePendingTransactionClarification(database, token, chatId, te
   }
 
   const transactions = [];
-  const sign = type === "income" ? "+" : "-";
 
   for (const candidate of candidates.slice(0, 10)) {
-    const amount = Number(candidate?.amount);
-    const note = String(candidate?.note ?? "").trim();
-    const category = String(candidate?.category ?? (type === "income" ? "income" : "other")).trim();
-    const parsed = parseTransactionLine(`${sign}${amount} ${note} kategori ${category}`);
+    const transaction = buildClarifiedTransaction(candidate, type);
 
-    if (!parsed.ok) {
+    if (!transaction) {
       await sendTelegramMessage(
         token,
         chatId,
@@ -492,11 +494,7 @@ async function handlePendingTransactionClarification(database, token, chatId, te
       return { ok: false, kind: "transaction_clarification_invalid" };
     }
 
-    transactions.push({
-      ...parsed.transaction,
-      original: candidate.original ?? `${amount} ${note}`,
-      confidence: Math.min(parsed.transaction.confidence, Number(candidate.confidence ?? 0.75)),
-    });
+    transactions.push(transaction);
   }
 
   const saved = await saveTransactions(database, transactions);
@@ -549,13 +547,16 @@ async function handlePendingWalletSelection(database, token, chatId, text, sessi
     return { ok: false, kind: "wallet_selection_pending" };
   }
 
-  const parsed = parseTransactionLine(`-${transaction.amount} ${transaction.note}${walletChoice ? ` dompet ${walletChoice}` : ""}`);
-  if (!parsed.ok) {
+  const transactionToSave = {
+    ...transaction,
+    wallet: walletChoice ?? null,
+  };
+  if (!isValidTransaction(transactionToSave)) {
     await sendTelegramMessage(token, chatId, "Klarifikasi dompet belum valid. Kirim ulang transaksinya.", { replyMarkup: mainKeyboard });
     return { ok: false, kind: "wallet_selection_invalid" };
   }
 
-  const saved = await saveTransactions(database, [parsed.transaction]);
+  const saved = await saveTransactions(database, [transactionToSave]);
   const summary = await getSummary(database);
   await clearChatSessionPendingAction(database, chatId);
   await sendTelegramMessage(token, chatId, [
@@ -576,15 +577,56 @@ function formatSimpleRupiah(value) {
   }).format(Number(value ?? 0));
 }
 
+function buildClarifiedTransaction(candidate, type) {
+  const amount = Number(candidate?.amount);
+  const note = String(candidate?.note ?? "").trim();
+  const category = String(candidate?.category ?? (type === "income" ? "income" : "other")).trim() || "other";
+  const confidence = Math.min(0.96, Number(candidate?.confidence ?? 0.75));
+  const transaction = {
+    type,
+    amount,
+    note,
+    category,
+    wallet: normalizeWalletName(candidate?.wallet),
+    paymentMethod: null,
+    date: null,
+    tags: [],
+    rawAmount: String(amount),
+    original: candidate?.original ?? `${amount} ${note}`,
+    confidence,
+  };
+
+  return isValidTransaction(transaction) ? transaction : null;
+}
+
+function isValidTransaction(transaction) {
+  return (
+    (transaction?.type === "income" || transaction?.type === "expense")
+    && Number.isSafeInteger(transaction.amount)
+    && transaction.amount > 0
+    && Boolean(String(transaction.note ?? "").trim())
+    && Boolean(String(transaction.category ?? "").trim())
+  );
+}
+
+function normalizeWalletName(value) {
+  const normalized = String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return normalized || null;
+}
+
 function parseClarifiedTransactionType(text) {
   const normalized = String(text ?? "").trim().toLowerCase();
 
-  if (["pemasukan", "/pemasukan", "income", "masuk", "input pemasukan"].includes(normalized)) {
+  if (["2", "pemasukan", "/pemasukan", "income", "masuk", "input pemasukan"].includes(normalized)) {
     return "income";
   }
 
-  if (["pengeluaran", "/pengeluaran", "expense", "keluar", "input pengeluaran"].includes(normalized)) {
+  if (["1", "pengeluaran", "/pengeluaran", "expense", "keluar", "input pengeluaran"].includes(normalized)) {
     return "expense";
+  }
+
+  if (["3", "bukan transaksi", "batal", "cancel"].includes(normalized)) {
+    return "cancel";
   }
 
   return null;
@@ -597,12 +639,8 @@ function buildStartReply() {
     "Pakai tombol cepat di bawah chat atau menu command Telegram.",
     "",
     "Alur utama:",
-    "Input Pemasukan -> 500k gaji",
-    "Input Pengeluaran -> 20k bensin",
-    "",
-    "Tanda cepat juga tetap bisa:",
-    "-20k bensin",
-    "+500k gaji",
+    "Kirim pesan natural seperti: bensin 20k pakai cash",
+    "Kalau ambigu, bot akan memberi pilihan 1/2/3.",
     "",
     "Command ringkas:",
     "saldo",
@@ -623,12 +661,10 @@ function buildStopReply() {
 function buildInputModePrompt(mode) {
   const label = mode === "income" ? "pemasukan" : "pengeluaran";
   const example = mode === "income" ? "500k gaji" : "20k bensin";
-  const sign = mode === "income" ? "+" : "-";
-
   return [
     `Mode ${label} aktif.`,
     "",
-    `Kirim nominal dan catatan tanpa tanda ${sign}.`,
+    "Kirim nominal dan catatan dalam bahasa natural.",
     `Contoh: ${example}`,
     "Ketik /batal untuk membatalkan.",
   ].join("\n");

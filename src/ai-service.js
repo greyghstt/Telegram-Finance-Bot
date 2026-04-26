@@ -69,12 +69,12 @@ export async function detectFinanceAnomalies(data, options = {}) {
   });
 }
 
-export async function extractTransactionCandidates(text, context = {}, options = {}) {
+export async function routeFinancialIntent(text, context = {}, options = {}) {
   const result = await createChatCompletion({
     data: { text, context },
     options,
     profile: PROFILE_QUICK,
-    messageBuilder: buildTransactionExtractionMessages,
+    messageBuilder: buildFinancialIntentRouterMessages,
   });
 
   if (!result.ok) {
@@ -90,12 +90,33 @@ export async function extractTransactionCandidates(text, context = {}, options =
       model: result.model,
       profile: result.profile,
       latencyMs: result.latencyMs,
-      candidates: Array.isArray(parsed?.transactions) ? parsed.transactions : [],
+      intent: parsed?.intent ?? "unknown_or_ambiguous",
+      confidence: parsed?.confidence ?? 0,
+      transactions: Array.isArray(parsed?.transactions) ? parsed.transactions : [],
+      question: parsed?.question ?? null,
+      category: parsed?.category ?? null,
+      period: parsed?.period ?? null,
+      amount: parsed?.amount ?? null,
+      wallet: parsed?.wallet ?? null,
+      fromWallet: parsed?.fromWallet ?? null,
+      toWallet: parsed?.toWallet ?? null,
+      note: parsed?.note ?? null,
       raw: result.content,
     };
   } catch {
-    return fallbackResult("invalid_json");
+    return fallbackResult("invalid_json", PROFILE_QUICK);
   }
+}
+
+export async function extractTransactionCandidates(text, context = {}, options = {}) {
+  const result = await routeFinancialIntent(text, context, options);
+  if (!result.ok) {
+    return result;
+  }
+  return {
+    ...result,
+    candidates: result.transactions,
+  };
 }
 
 export async function classifyWalletIntent(text, context = {}, options = {}) {
@@ -348,18 +369,20 @@ function buildAnomalyDetectionMessages(data) {
   ];
 }
 
-function buildTransactionExtractionMessages(data) {
+function buildFinancialIntentRouterMessages(data) {
   return [
     {
       role: "system",
       content: [
-        "Ekstrak transaksi Bahasa Indonesia.",
-        "Balas JSON valid saja.",
-        "Format: {\"transactions\":[{\"type\":\"income|expense|unknown\",\"amount\":number,\"note\":\"string\",\"category\":\"allowed category\",\"confidence\":0.0}]}",
-        "Pilih category hanya dari allowedCategories.",
-        "Jika kategori tidak jelas gunakan other.",
-        "Jangan mengarang nominal.",
-        "Maksimal 10 transaksi.",
+        "Kamu adalah router intent keuangan untuk bot Telegram Bahasa Indonesia.",
+        "Balas JSON valid saja tanpa Markdown.",
+        "Format: {\"intent\":string,\"confidence\":0.0,\"transactions\":[],\"question\":string|null,\"category\":string|null,\"period\":string|null,\"amount\":number|null,\"wallet\":string|null,\"fromWallet\":string|null,\"toWallet\":string|null,\"note\":string|null}",
+        "Intent yang boleh: transaction_create, transaction_clarify, finance_question, budget_set, wallet_transfer, wallet_balance_query, wallet_balance_set, wallet_balance_adjust, delete_request, unknown_or_ambiguous.",
+        "Untuk transaction_create, isi transactions dengan maksimal 10 item: {type:'income|expense|unknown',amount:number,note:string,category:string,wallet:string|null,confidence:0.0}.",
+        "Pilih category hanya dari allowedCategories; jika tidak jelas gunakan other.",
+        "Jika tipe pemasukan/pengeluaran ambigu, gunakan transaction_clarify dan type unknown.",
+        "Aksi hapus/edit/reset dan set saldo absolut tidak boleh dianggap aman dieksekusi otomatis; route sebagai delete_request atau wallet_balance_set saja.",
+        "Jangan mengarang nominal, wallet, kategori, atau tanggal.",
       ].join(" "),
     },
     {
@@ -368,6 +391,8 @@ function buildTransactionExtractionMessages(data) {
         text: String(data?.text ?? ""),
         context: {
           defaultType: data?.context?.defaultType ?? null,
+          wallets: Array.isArray(data?.context?.wallets) ? data.context.wallets.slice(0, 10) : [],
+          defaultWallet: data?.context?.defaultWallet ?? null,
           allowedCategories: [
             "food",
             "transport",

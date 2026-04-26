@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { initializeDatabase, listTransactions, openDatabase, saveTransactions } from "./database.js";
 import { exportTransactionsToCsv, importTransactionsFromCsv, parseTransactionsCsv } from "./csv-backup.js";
-import { parseInput } from "./parser.js";
 
 async function createTestDatabase() {
   const database = openDatabase(":memory:");
@@ -10,11 +9,17 @@ async function createTestDatabase() {
   return database;
 }
 
+function sampleTransactions() {
+  return [
+    { type: "expense", amount: 20000, note: "bensin", category: "transport", tags: [], rawAmount: "20000", original: "bensin 20000", confidence: 0.9 },
+    { type: "income", amount: 100000, note: "refund", category: "income", tags: [], rawAmount: "100000", original: "refund 100000", confidence: 0.9 },
+  ];
+}
+
 describe("csv backup", () => {
   it("exports active transactions to csv", async () => {
     const database = await createTestDatabase();
-    const parsed = parseInput("-20k bensin\n+100k refund");
-    await saveTransactions(database, parsed.transactions);
+    await saveTransactions(database, sampleTransactions());
 
     const exported = await exportTransactionsToCsv(database);
 
@@ -26,8 +31,7 @@ describe("csv backup", () => {
 
   it("parses exported csv and supports dry run import", async () => {
     const source = await createTestDatabase();
-    const parsed = parseInput("-20k bensin\n+100k refund");
-    await saveTransactions(source, parsed.transactions);
+    await saveTransactions(source, sampleTransactions());
     const exported = await exportTransactionsToCsv(source);
 
     const dryRun = await importTransactionsFromCsv(await createTestDatabase(), exported.csv, { dryRun: true });

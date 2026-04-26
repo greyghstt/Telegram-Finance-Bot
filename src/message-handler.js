@@ -42,15 +42,14 @@ import {
 import { exportTransactionsToCsv } from "./csv-backup.js";
 import {
   answerFinanceQuestion,
-  classifyWalletIntent,
   detectFinanceAnomalies,
-  extractTransactionCandidates,
+  routeFinancialIntent,
   generateBudgetSuggestion,
   generateFinanceInsight,
   generateMonthlyFinanceReview,
   generateWeeklyFinanceReport,
 } from "./ai-service.js";
-import { parseAmount, parseInput, parseTransactionLine } from "./parser.js";
+import { parseAmount, parseInput } from "./parser.js";
 
 const JAKARTA_TIME_ZONE = "Asia/Jakarta";
 const TRANSACTION_TIME_FORMATTER = new Intl.DateTimeFormat("id-ID", {
@@ -113,76 +112,37 @@ export async function handleMessage(database, message, options = {}) {
 }
 
 async function handleMessageCore(database, message, options = {}) {
-  const normalizedMessage = normalizeDeterministicInput(message, options);
+  const normalizedMessage = String(message ?? "").trim();
 
   const variableCommand = parseVariableCommand(normalizedMessage);
   if (variableCommand) {
     return handleVariableCommand(database, variableCommand, options);
   }
 
-  const walletIntent = await tryHandleWalletIntent(database, normalizedMessage, options);
-  if (walletIntent) {
-    return walletIntent;
-  }
-
   const parsed = parseInput(normalizedMessage, {
     defaultType: options.defaultTransactionType,
+    commandsOnly: true,
   });
 
-  if (!parsed.ok) {
-    const guidance = buildDeterministicIntentGuidance(normalizedMessage, parsed, options);
-    if (guidance) {
-      return guidance;
-    }
-
-    const extracted = await tryHandleNaturalTransaction(database, normalizedMessage, parsed, options);
-    if (extracted) {
-      return extracted;
-    }
-
-    return {
-      ok: false,
-      kind: "error",
-      parsed,
-      reply: [
-        "Format belum aman untuk disimpan.",
-        parsed.error,
-        "",
-        "Pakai alur utama:",
-        "/pemasukan lalu kirim 500k gaji",
-        "/pengeluaran lalu kirim 20k bensin",
-        "",
-        "Atau pakai natural input yang jelas:",
-        "beli bensin 20 ribu",
-        "gaji freelance masuk 1,5 juta",
-      ].join("\n"),
-    };
-  }
-
-  if (parsed.kind === "command") {
+  if (parsed.ok && parsed.kind === "command") {
     return handleCommand(database, parsed.command, options);
   }
 
-  const transactions =
-    parsed.kind === "batch" ? parsed.transactions : [parsed.transaction];
-  const walletResolution = await resolveWalletAwareTransactions(database, transactions, options);
-  if (!walletResolution.ok) {
-    return walletResolution;
+  const aiIntent = await tryHandleAiIntent(database, normalizedMessage, options);
+  if (aiIntent) {
+    return aiIntent;
   }
-  if (walletResolution.kind === "clarification") {
-    return walletResolution;
-  }
-  const saved = await measureDb(options, "saveTransactions", () =>
-    saveTransactions(database, walletResolution.transactions));
-  const summary = await measureDb(options, "getSummary", () => getSummary(database));
 
-  return {
-    ok: true,
-    kind: parsed.kind,
-    saved,
-    summary,
-    reply: buildSavedReply(saved, summary),
-  };
+  const manual = parseInput(normalizedMessage, {
+    defaultType: options.defaultTransactionType,
+    requireExplicitType: true,
+  });
+
+  if (manual.ok && manual.kind !== "command") {
+    return saveValidatedTransactions(database, manual.kind === "batch" ? manual.transactions : [manual.transaction], manual.kind, options);
+  }
+
+  return buildAiFirstFallbackResponse(manual, normalizedMessage);
 }
 
 export async function handleCommand(database, command, options = {}) {
@@ -615,26 +575,103 @@ async function buildCategoryReportResponse(database, options) {
   };
 }
 
-async function tryHandleNaturalTransaction(database, message, parsed, options) {
-  if (!shouldTryNaturalTransaction(parsed, message, options)) {
+async function tryHandleAiIntent(database, message, options) {
+  if (!shouldRouteWithAi(message, options)) {
     return null;
   }
 
-  const extractor = options.extractTransactionCandidates ?? extractTransactionCandidates;
-  const result = await measureAi(options, () => extractor(message, {
-    defaultType: options.defaultTransactionType ?? null,
-  }));
+  const [wallets, session] = await Promise.all([
+    measureDb(options, "listWallets", () => listWallets(database, getChatId(options))),
+    measureDb(options, "getChatSession", () => getChatSession(database, getChatId(options))),
+  ]);
+  const router = options.routeFinancialIntent ?? routeFinancialIntent;
+  const result = await measureAi(options, async () => {
+    if (options.extractTransactionCandidates && !options.routeFinancialIntent) {
+      const legacy = await options.extractTransactionCandidates(message, {
+        defaultType: options.defaultTransactionType ?? null,
+        wallets: wallets.map((wallet) => wallet.name),
+        defaultWallet: session?.defaultWallet ?? null,
+      });
+      return legacy.ok
+        ? {
+            ...legacy,
+            intent: "transaction_create",
+            confidence: 0.9,
+            transactions: legacy.candidates ?? [],
+          }
+        : legacy;
+    }
 
-  if (!result.ok) {
+    return router(message, {
+      defaultType: options.defaultTransactionType ?? null,
+      wallets: wallets.map((wallet) => wallet.name),
+      defaultWallet: session?.defaultWallet ?? null,
+    });
+  });
+
+  if (!result.ok || Number(result.confidence ?? 0) < 0.65) {
     return null;
   }
 
-  const validation = await validateAiTransactionCandidates(database, result.candidates, message, options);
+  return executeAiIntent(database, result, message, options);
+}
+
+function shouldRouteWithAi(message, options) {
+  if (options.disableAiExtraction) {
+    return false;
+  }
+
+  const text = String(message ?? "").trim();
+  return Boolean(text) && !text.startsWith("/") && text.length <= 500;
+}
+
+async function executeAiIntent(database, intent, originalMessage, options) {
+  switch (intent.intent) {
+    case "transaction_create":
+    case "transaction_clarify":
+      return handleAiTransactions(database, intent, originalMessage, options);
+    case "finance_question":
+      return buildFinanceQuestionResponse(database, String(intent.question || originalMessage).trim(), options);
+    case "budget_set":
+      return buildBudgetSetResponse(database, {
+        command: "budget_set",
+        period: normalizeAiBudgetPeriod(intent.period),
+        category: normalizeCategorySlug(intent.category || "global") || "global",
+        amountText: String(intent.amount ?? ""),
+      }, options);
+    case "wallet_transfer":
+      return buildTransferSaveResponse(database, {
+        fromWallet: normalizeWalletNameLocal(intent.fromWallet),
+        toWallet: normalizeWalletNameLocal(intent.toWallet),
+        amountText: String(intent.amount ?? ""),
+        note: String(intent.note ?? "").trim(),
+      }, options);
+    case "wallet_balance_query":
+      return buildWalletBalanceQueryResponse(database, {
+        wallet: normalizeWalletNameLocal(intent.wallet),
+      }, options);
+    case "wallet_balance_set":
+    case "wallet_balance_adjust":
+      return buildWalletActionClarificationResponse(database, originalMessage, {
+        intent: intent.intent,
+        wallet: normalizeWalletNameLocal(intent.wallet),
+        amount: Number(intent.amount),
+        note: String(intent.note ?? "").trim() || null,
+      }, options);
+    case "delete_request":
+      return buildDeleteByTextClarificationResponse(String(intent.note || originalMessage).trim());
+    default:
+      return null;
+  }
+}
+
+async function handleAiTransactions(database, result, originalMessage, options) {
+  const validation = await validateAiTransactionCandidates(database, result.transactions, originalMessage, options);
   if (!validation.ok) {
     return {
       ok: false,
       kind: "error",
-      command: "ai_transaction_extract",
+      command: "ai_intent_router",
       ai: result,
       reply: validation.reply,
     };
@@ -650,110 +687,48 @@ async function tryHandleNaturalTransaction(database, message, parsed, options) {
     };
   }
 
+  return saveValidatedTransactions(database, validation.transactions, "ai_transactions", options, {
+    command: "ai_intent_router",
+    ai: result,
+    prefix: "Transaksi dari AI tervalidasi.",
+  });
+}
+
+async function saveValidatedTransactions(database, transactions, kind, options, extras = {}) {
+  const walletResolution = await resolveWalletAwareTransactions(database, transactions, options);
+  if (!walletResolution.ok || walletResolution.kind === "clarification") {
+    return walletResolution;
+  }
+
   const saved = await measureDb(options, "saveTransactions", () =>
-    saveTransactions(database, validation.transactions));
+    saveTransactions(database, walletResolution.transactions));
   const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  const reply = extras.prefix
+    ? [extras.prefix, "", buildSavedReply(saved, summary)].join("\n")
+    : buildSavedReply(saved, summary);
 
   return {
     ok: true,
-    kind: "ai_transactions",
-    command: "ai_transaction_extract",
+    kind,
     saved,
     summary,
-    reply: [
-      "Transaksi dari AI tervalidasi.",
-      "",
-      buildSavedReply(saved, summary),
-    ].join("\n"),
+    reply,
+    ...extras,
   };
 }
 
-async function tryHandleWalletIntent(database, message, options) {
-  const text = String(message ?? "").trim();
-  if (!text || text.startsWith("/")) {
-    return null;
+function normalizeAiBudgetPeriod(value) {
+  const period = String(value ?? "").toLowerCase();
+  if (["weekly", "monthly", "yearly"].includes(period)) {
+    return period;
   }
-
-  const wallets = await measureDb(options, "listWallets", () => listWallets(database, getChatId(options)));
-  const session = await measureDb(options, "getChatSession", () => getChatSession(database, getChatId(options)));
-
-  if (!looksLikeWalletIntent(text) && !looksLikeTransferIntent(text) && !/\b(?:saldo|pakai|dari|ke)\b/i.test(text)) {
-    return null;
+  if (["minggu", "week"].includes(period)) {
+    return "weekly";
   }
-
-  const classifier = options.classifyWalletIntent ?? classifyWalletIntent;
-  const aiResult = await measureAi(options, () =>
-    classifier(text, {
-      wallets: wallets.map((wallet) => wallet.name),
-      defaultWallet: session?.defaultWallet ?? null,
-      defaultType: options.defaultTransactionType ?? null,
-    }));
-
-  if (!aiResult.ok || Number(aiResult.confidence ?? 0) < 0.75) {
-    return null;
+  if (["tahun", "year"].includes(period)) {
+    return "yearly";
   }
-
-  const normalized = normalizeAiWalletIntent(aiResult);
-  if (!normalized) {
-    return null;
-  }
-
-  if (normalized.intent === "wallet_balance_set") {
-    return buildWalletActionClarificationResponse(database, text, normalized, options);
-  }
-
-  if (normalized.intent === "wallet_balance_adjust") {
-    return buildWalletBalanceAdjustResponse(database, {
-      wallet: normalized.wallet,
-      amountText: String(normalized.amount),
-      note: normalized.note,
-    }, options);
-  }
-
-  if (normalized.intent === "income_to_wallet") {
-    const parsed = parseTransactionLine(`+${normalized.amount} ${normalized.note} dompet ${normalized.wallet}`);
-    if (!parsed.ok) {
-      return null;
-    }
-    const saved = await measureDb(options, "saveTransactions", () => saveTransactions(database, [parsed.transaction]));
-    const summary = await measureDb(options, "getSummary", () => getSummary(database));
-    return { ok: true, kind: "wallet_ai_intent", command: "income_to_wallet", saved, summary, reply: buildSavedReply(saved, summary) };
-  }
-
-  if (normalized.intent === "expense_from_wallet") {
-    const parsed = parseTransactionLine(`-${normalized.amount} ${normalized.note} dompet ${normalized.wallet}`);
-    if (!parsed.ok) {
-      return null;
-    }
-    const saved = await measureDb(options, "saveTransactions", () => saveTransactions(database, [parsed.transaction]));
-    const summary = await measureDb(options, "getSummary", () => getSummary(database));
-    return { ok: true, kind: "wallet_ai_intent", command: "expense_from_wallet", saved, summary, reply: buildSavedReply(saved, summary) };
-  }
-
-  if (normalized.intent === "wallet_transfer") {
-    return buildTransferSaveResponse(database, {
-      fromWallet: normalized.fromWallet,
-      toWallet: normalized.toWallet,
-      amountText: String(normalized.amount),
-      note: normalized.note ?? "",
-    }, options);
-  }
-
-  if (normalized.intent === "balance_query" && normalized.wallet) {
-    const balances = await measureDb(options, "getWalletBalances", () => getWalletBalances(database, getChatId(options)));
-    const wallet = balances.find((item) => item.name === normalized.wallet);
-    return {
-      ok: true,
-      kind: "command",
-      command: "wallet_balance_query",
-      wallets: balances,
-      reply: wallet
-        ? `Saldo dompet ${capitalizeFirst(wallet.name)}: ${formatRupiah(wallet.balance)}`
-        : `Dompet ${capitalizeFirst(normalized.wallet)} belum ada.`,
-    };
-  }
-
-  return null;
+  return "monthly";
 }
 
 async function resolveWalletAwareTransactions(database, transactions, options) {
@@ -1853,118 +1828,24 @@ function nextRecurringRunAt(cadence, now = new Date()) {
   return date;
 }
 
-function shouldTryNaturalTransaction(parsed, message, options) {
-  if (options.disableAiExtraction) {
-    return false;
-  }
-
-  const text = String(message ?? "").trim();
-  if (!text || text.startsWith("/") || text.length > 500) {
-    return false;
-  }
-
-  if (looksLikeWalletIntent(text) || looksLikeTransferIntent(text)) {
-    return false;
-  }
-
-  return parsed.error.includes("Tipe transaksi belum jelas")
-    || parsed.error.includes("Format pesan belum dikenali");
-}
-
-function normalizeDeterministicInput(message, options = {}) {
-  const text = String(message ?? "").trim();
-  if (!text || text.startsWith("/")) {
-    return text;
-  }
-
-  const walletIncome = parseWalletIncomeIntent(text, options.defaultTransactionType);
-  if (walletIncome) {
-    return walletIncome;
-  }
-
-  return text;
-}
-
-function parseWalletIncomeIntent(text, defaultTransactionType) {
-  const explicitType = defaultTransactionType === "income" ? "+" : null;
-  const prefix = explicitType ?? "+";
-
-  const walletLastPatterns = [
-    /^(?:setor(?:kan)?|top\s*up|topup|isi saldo|saldo awal)\s+(.+?)\s+ke\s+([a-zA-Z0-9_-]{2,32})$/i,
-    /^(.+?)\s+masuk\s+ke\s+([a-zA-Z0-9_-]{2,32})$/i,
-  ];
-
-  for (const pattern of walletLastPatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      return `${prefix}${match[1].trim()} dompet ${match[2].trim()}`;
-    }
-  }
-
-  const walletFirstPatterns = [
-    /^(?:setor(?:kan)?|top\s*up|topup|isi saldo|saldo awal)\s+([a-zA-Z0-9_-]{2,32})\s+(.+)$/i,
-    /^masuk\s+ke\s+([a-zA-Z0-9_-]{2,32})\s+(.+)$/i,
-  ];
-
-  for (const pattern of walletFirstPatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      return `${prefix}${match[2].trim()} dompet ${match[1].trim()}`;
-    }
-  }
-
-  return null;
-}
-
-function looksLikeWalletIntent(text) {
-  return /\b(?:dompet|wallet|akun|saldo dompet|top\s*up|topup|isi saldo|saldo awal|setor(?:kan)?|masuk ke)\b/i.test(text);
-}
-
-function looksLikeTransferIntent(text) {
-  return /\b(?:transfer|riwayat transfer|pindah(?:kan)?|kirim(?:kan)?)\b/i.test(text);
-}
-
-function buildDeterministicIntentGuidance(message, parsed, options = {}) {
-  const text = String(message ?? "").trim();
-  if (!text) {
-    return null;
-  }
-
-  if (looksLikeTransferIntent(text)) {
-    return {
-      ok: false,
-      kind: "error",
-      parsed,
-      reply: [
-        "Format transfer belum lengkap.",
-        "",
-        "Contoh yang didukung:",
-        "transfer bca cash 50k",
-        "transfer dari bca ke cash 50k",
-        "pindah 50k dari bca ke cash",
-      ].join("\n"),
-    };
-  }
-
-  if (looksLikeWalletIntent(text) && options.defaultTransactionType !== "expense") {
-    return {
-      ok: false,
-      kind: "error",
-      parsed,
-      reply: [
-        "Format dompet belum lengkap.",
-        "",
-        "Contoh yang didukung:",
-        "dompet tambah cash",
-        "dompet",
-        "topup gopay 100k",
-        "isi saldo 100k ke dana",
-        "masuk ke bca 500k gaji",
-      ].join("\n"),
-    };
-  }
-
-  return null;
+function buildAiFirstFallbackResponse(parsed, message) {
+  const detail = parsed?.error ? ["", parsed.error] : [];
+  return {
+    ok: false,
+    kind: "clarification",
+    parsed,
+    reply: [
+      "Aku belum yakin maksud pesan ini.",
+      ...detail,
+      "",
+      "Balas salah satu:",
+      "1. Catat sebagai pengeluaran",
+      "2. Catat sebagai pemasukan",
+      "3. Bukan transaksi",
+      "",
+      `Pesan: ${String(message ?? "").trim()}`,
+    ].join("\n"),
+  };
 }
 
 async function validateAiTransactionCandidates(database, candidates, original, options) {
@@ -2003,9 +1884,10 @@ async function validateAiTransactionCandidates(database, candidates, original, o
         reply: [
           "AI belum bisa memvalidasi transaksi ini dengan aman.",
           "",
-          "Coba pakai format manual, misalnya:",
-          "beli bensin 20 ribu",
-          "gaji freelance masuk 500k",
+          "Balas salah satu:",
+          "1. Catat sebagai pengeluaran",
+          "2. Catat sebagai pemasukan",
+          "3. Bukan transaksi",
         ].join("\n"),
       };
     }
@@ -2015,20 +1897,18 @@ async function validateAiTransactionCandidates(database, candidates, original, o
       continue;
     }
 
-    const sign = type === "income" ? "+" : "-";
-    const line = `${sign}${amount} ${note} kategori ${category}`;
-    const parsed = parseTransactionLine(line);
-    if (!parsed.ok) {
-      return {
-        ok: false,
-        reply: "AI menghasilkan transaksi yang tidak valid. Tidak ada data yang disimpan.",
-      };
-    }
-
     transactions.push({
-      ...parsed.transaction,
+      type,
+      amount,
+      note,
+      category,
+      wallet: normalizeWalletNameLocal(candidate?.wallet) || null,
+      paymentMethod: null,
+      date: null,
+      tags: [],
+      rawAmount: String(amount),
       original,
-      confidence: Math.min(parsed.transaction.confidence, confidence),
+      confidence,
     });
   }
 
@@ -2044,9 +1924,9 @@ function buildTransactionClarificationReply(candidates) {
     "Transaksi masih ambigu.",
     "",
     "Balas salah satu:",
-    "pemasukan",
-    "pengeluaran",
-    "/batal",
+    "1. Pengeluaran",
+    "2. Pemasukan",
+    "3. Bukan transaksi",
     "",
     "Item yang menunggu:",
   ];
@@ -2079,9 +1959,9 @@ function buildWalletActionClarificationResponse(database, originalText, intent, 
       `Pesan: ${originalText}`,
       "",
       "Balas salah satu:",
-      `set saldo dompet ${intent.wallet} ${intent.amount}`,
-      `+${intent.amount} ${intent.note ?? "pemasukan"} dompet ${intent.wallet}`,
-      "/batal",
+      "1. Set saldo dompet",
+      "2. Catat sebagai pemasukan ke dompet",
+      "3. Batal / bukan transaksi",
     ].join("\n"),
   };
 }
@@ -2107,41 +1987,6 @@ function buildWalletSelectionClarificationResponse(wallets, transaction, options
       "/batal",
     ].join("\n"),
   };
-}
-
-function normalizeAiWalletIntent(result) {
-  const intent = String(result?.intent ?? "").trim();
-  const confidence = Number(result?.confidence ?? 0);
-  const amount = Number.parseInt(result?.amount, 10);
-  const wallet = normalizeWalletNameLocal(result?.wallet);
-  const fromWallet = normalizeWalletNameLocal(result?.fromWallet);
-  const toWallet = normalizeWalletNameLocal(result?.toWallet);
-  const note = String(result?.note ?? "").trim() || null;
-
-  if (!intent || confidence < 0.75) {
-    return null;
-  }
-
-  if (["wallet_balance_set", "wallet_balance_adjust", "income_to_wallet", "expense_from_wallet"].includes(intent)) {
-    if (!wallet || !Number.isSafeInteger(amount) || amount <= 0) {
-      return null;
-    }
-
-    return { intent, wallet, amount, note };
-  }
-
-  if (intent === "wallet_transfer") {
-    if (!fromWallet || !toWallet || fromWallet === toWallet || !Number.isSafeInteger(amount) || amount <= 0) {
-      return null;
-    }
-    return { intent, fromWallet, toWallet, amount, note };
-  }
-
-  if (intent === "balance_query") {
-    return { intent, wallet };
-  }
-
-  return null;
 }
 
 function inferWalletForExpense(note, wallets) {
@@ -2516,7 +2361,9 @@ async function buildUndoDeleteResponse(database, options) {
 }
 
 async function buildEditByIdResponse(database, command, options) {
-  const parsed = parseInput(command.replacement);
+  const parsed = parseInput(command.replacement, {
+    defaultType: options.defaultTransactionType,
+  });
 
   if (!parsed.ok || parsed.kind === "command" || parsed.kind === "batch") {
     return {
@@ -2721,11 +2568,14 @@ function parseVariableCommand(message) {
     return { command: "wallet_list" };
   }
 
-  const transferMatch =
+  const explicitTransferMatch =
     text.match(/^\/?transfer\s+(?:dari\s+)?([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+)(?:\s+(.{2,80}))?$/i)
-    ?? text.match(/^\/?(?:pindah(?:kan)?|kirim(?:kan)?)\s+([^\s]+)\s+dari\s+([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})(?:\s+(.{2,80}))?$/i)
-    ?? text.match(/^\/?([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+(?:\s+(?:ribu|rebu|rb|r|k|juta|jt|mio|m))?)(?:\s+(.{2,80}))?$/i);
-    
+    ?? text.match(/^\/?(?:pindah(?:kan)?|kirim(?:kan)?)\s+([^\s]+)\s+dari\s+([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})(?:\s+(.{2,80}))?$/i);
+  const shorthandTransferMatch = text.startsWith("/")
+    ? text.match(/^\/?([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+(?:\s+(?:ribu|rebu|rb|r|k|juta|jt|mio|m))?)(?:\s+(.{2,80}))?$/i)
+    : null;
+  const transferMatch = explicitTransferMatch ?? shorthandTransferMatch;
+
   const compactTransferMatch = /\bke\b/i.test(text)
     ? null
     : text.match(/^\/?transfer\s+([a-zA-Z0-9_-]{2,32})\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+)(?:\s+(.{2,80}))?$/i);
