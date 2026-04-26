@@ -385,21 +385,24 @@ describe("message handler", () => {
     const database = await createTestDatabase();
 
     const wallet = await handleMessage(database, "buat dompet cash", {
+      chatId: 123,
       routeFinancialIntent: async () => ({ ok: true, intent: "wallet_create", confidence: 0.9, wallet: "cash" }),
     });
     const bill = await handleMessage(database, "tagihan wifi 250k tiap tanggal 15", {
+      chatId: 123,
       routeFinancialIntent: async () => ({ ok: true, intent: "bill_create", confidence: 0.9, note: "wifi", amount: 250000, dayOfMonth: 15, category: "bills" }),
     });
     const recurring = await handleMessage(database, "kos bulanan 500k", {
+      chatId: 123,
       routeFinancialIntent: async () => ({ ok: true, intent: "recurring_create", confidence: 0.9, note: "kos", amount: 500000, frequency: "monthly", category: "housing" }),
     });
 
     assert.equal(wallet.command, "wallet_save");
-    assert.equal((await listWallets(database))[0].name, "cash");
+    assert.equal((await listWallets(database, 123))[0].name, "cash");
     assert.equal(bill.command, "bill_save");
-    assert.equal((await listBillReminders(database))[0].title, "wifi");
+    assert.equal((await listBillReminders(database, 123))[0].title, "wifi");
     assert.equal(recurring.command, "recurring_save");
-    assert.match((await listRecurringRules(database))[0].templateMessage, /kos/);
+    assert.match((await listRecurringRules(database, 123))[0].templateMessage, /kos/);
   });
 
   it("asks for clarification when delete request uses description instead of ID", async () => {
@@ -772,7 +775,7 @@ describe("message handler", () => {
 
     await saveAiTransaction(database, { type: "expense", amount: 20000, note: "makan", category: "food" });
 
-    const result = await handleMessage(database, "analisa", {
+    const result = await handleMessage(database, "insight", {
       generateFinanceInsight: async (data) => ({
         ok: true,
         content: `AI membaca ${data.summary.transactionCount} transaksi.`,
@@ -1049,5 +1052,127 @@ describe("message handler", () => {
 
     assert.equal(range.from, "2026-04-15T17:00:00.000Z");
     assert.equal(range.to, "2026-04-16T17:00:00.000Z");
+  });
+
+  it("routes system commands directly without AI", async () => {
+    const database = await createTestDatabase();
+    let aiCalls = 0;
+
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport" });
+
+    const commands = ["help", "saldo", "hari ini", "riwayat", "kategori", "insight", "export csv", "hapus terakhir"];
+
+    for (const command of commands) {
+      await handleMessage(database, command, {
+        routeFinancialIntent: async () => {
+          aiCalls += 1;
+          return { ok: false, confidence: 0 };
+        },
+      });
+    }
+
+    assert.equal(aiCalls, 0);
+  });
+
+  it("routes hard commands (delete/edit by ID) directly without AI", async () => {
+    const database = await createTestDatabase();
+    let aiCalls = 0;
+
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport", chatId: 123 });
+
+    const deleteResult = await handleMessage(database, "hapus 1", {
+      chatId: 123,
+      routeFinancialIntent: async () => {
+        aiCalls += 1;
+        return { ok: false, confidence: 0 };
+      },
+    });
+
+    await saveAiTransaction(database, { type: "expense", amount: 30000, note: "makan", category: "food", chatId: 123 });
+
+    const editResult = await handleMessage(database, "edit 2 refund 50k", {
+      chatId: 123,
+      defaultTransactionType: "income",
+      routeFinancialIntent: async () => {
+        aiCalls += 1;
+        return { ok: false, confidence: 0 };
+      },
+    });
+
+    const correctionResult = await handleMessage(database, "koreksi kategori 2 transport", {
+      chatId: 123,
+      routeFinancialIntent: async () => {
+        aiCalls += 1;
+        return { ok: false, confidence: 0 };
+      },
+    });
+
+    assert.equal(aiCalls, 0);
+    assert.equal(deleteResult.command, "delete_by_id");
+    assert.equal(editResult.command, "edit_by_id");
+    assert.equal(correctionResult.command, "category_correction");
+  });
+
+  it("routes natural budget/wallet/transfer through AI first before fallback", async () => {
+    const database = await createTestDatabase();
+    let aiCalls = 0;
+
+    await handleMessage(database, "dompet tambah cash", {
+      chatId: 123,
+      routeFinancialIntent: async () => {
+        aiCalls += 1;
+        return { ok: true, intent: "wallet_create", confidence: 0.9, wallet: "cash" };
+      },
+    });
+
+    await handleMessage(database, "budget food 700k", {
+      routeFinancialIntent: async () => {
+        aiCalls += 1;
+        return { ok: true, intent: "budget_set", confidence: 0.9, category: "food", amount: 700000, period: "monthly" };
+      },
+    });
+
+    assert.equal(aiCalls, 2);
+  });
+
+  it("falls back to manual parser when AI returns low confidence", async () => {
+    const database = await createTestDatabase();
+
+    await handleMessage(database, "dompet tambah bank");
+
+    const result = await handleMessage(database, "set saldo dompet bank 70k", {
+      routeFinancialIntent: async () => ({
+        ok: true,
+        intent: "unknown",
+        confidence: 0.3,
+      }),
+    });
+
+    assert.equal(result.command, "wallet_balance_set");
+    assert.match(result.reply, /Saldo bank diatur/);
+  });
+
+  it("rejects malformed AI transaction with low confidence", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "catatan sesuatu 20 ribu", {
+      routeFinancialIntent: async () => ({
+        ok: true,
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [
+          {
+            type: "expense",
+            amount: 20000,
+            note: "sesuatu",
+            category: "other",
+            confidence: 0.4,
+          },
+        ],
+      }),
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.reply, /belum cukup jelas/i);
   });
 });

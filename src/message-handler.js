@@ -114,23 +114,24 @@ export async function handleMessage(database, message, options = {}) {
 async function handleMessageCore(database, message, options = {}) {
   const normalizedMessage = String(message ?? "").trim();
 
-  const variableCommand = parseVariableCommand(normalizedMessage);
-  if (variableCommand) {
-    return handleVariableCommand(database, variableCommand, options);
+  const systemCommand = parseSystemCommand(normalizedMessage);
+  if (systemCommand) {
+    return handleCommand(database, systemCommand, options);
   }
 
-  const parsed = parseInput(normalizedMessage, {
-    defaultType: options.defaultTransactionType,
-    commandsOnly: true,
-  });
-
-  if (parsed.ok && parsed.kind === "command") {
-    return handleCommand(database, parsed.command, options);
+  const hardCommand = parseHardCommand(normalizedMessage);
+  if (hardCommand) {
+    return handleVariableCommand(database, hardCommand, options);
   }
 
   const aiIntent = await tryHandleAiIntent(database, normalizedMessage, options);
   if (aiIntent) {
     return aiIntent;
+  }
+
+  const variableCommand = parseVariableCommand(normalizedMessage);
+  if (variableCommand) {
+    return handleVariableCommand(database, variableCommand, options);
   }
 
   const manual = parseInput(normalizedMessage, {
@@ -646,7 +647,7 @@ async function executeAiIntent(database, intent, originalMessage, options) {
     case "wallet_create":
       return buildWalletSaveResponse(database, {
         command: "wallet_save",
-        wallet: normalizeWalletNameLocal(intent.wallet || intent.note),
+        name: normalizeWalletNameLocal(intent.wallet || intent.note),
       }, options);
     case "wallet_transfer":
       return buildTransferSaveResponse(database, {
@@ -2582,6 +2583,96 @@ function buildHelpResponse() {
       "export csv / reset",
     ].join("\n"),
   };
+}
+
+function parseSystemCommand(message) {
+  const text = String(message ?? "").trim();
+
+  if (/^\/?(?:help|bantuan|\?)$/i.test(text)) {
+    return "help";
+  }
+
+  if (/^\/?(?:balance|saldo|cek saldo)$/i.test(text)) {
+    return "balance";
+  }
+
+  if (/^\/?(?:hari ini|today|today report)$/i.test(text)) {
+    return "today_report";
+  }
+
+  if (/^\/?(?:minggu ini|pekan ini|week|week report)$/i.test(text)) {
+    return "week_report";
+  }
+
+  if (/^\/?(?:bulan ini|month|month report)$/i.test(text)) {
+    return "month_report";
+  }
+
+  if (/^\/?(?:tahun ini|year|year report)$/i.test(text)) {
+    return "year_report";
+  }
+
+  if (/^\/?(?:history|riwayat|transaksi terakhir)$/i.test(text)) {
+    return "history";
+  }
+
+  if (/^\/?(?:kategori|category|category report|laporan kategori)$/i.test(text)) {
+    return "category_report";
+  }
+
+  if (/^\/?(?:insight|analisis)$/i.test(text)) {
+    return "insight";
+  }
+
+  if (/^\/?(?:export|export csv|download csv)$/i.test(text)) {
+    return "export";
+  }
+
+  if (/^\/?(?:reset|reset data|hapus semua)$/i.test(text)) {
+    return "reset_data";
+  }
+
+  if (/^\/?(?:hapus terakhir|delete last|hapus last)$/i.test(text)) {
+    return "delete_last";
+  }
+
+  if (/^\/?(?:undo|batalkan hapus|kembalikan terakhir)$/i.test(text)) {
+    return "undo_delete";
+  }
+
+  return null;
+}
+
+function parseHardCommand(message) {
+  const text = String(message ?? "").trim();
+
+  const deleteMatch = text.match(/^\/?(?:hapus|delete|remove)\s+(?:id\s*)?#?(\d+)$/i);
+  if (deleteMatch) {
+    return {
+      command: "delete_by_id",
+      id: Number(deleteMatch[1]),
+    };
+  }
+
+  const editMatch = text.match(/^\/?(?:edit|ubah transaksi|ganti transaksi)\s+#?(\d+)\s+(.{3,240})$/i);
+  if (editMatch) {
+    return {
+      command: "edit_by_id",
+      id: Number(editMatch[1]),
+      replacement: editMatch[2].trim(),
+    };
+  }
+
+  const correctionMatch = text.match(/^\/?(?:koreksi|ubah|ganti)\s+kategori\s+#?(\d+)\s+([a-zA-Z0-9_-]{2,32})$/i);
+  if (correctionMatch) {
+    return {
+      command: "category_correction",
+      id: Number(correctionMatch[1]),
+      category: correctionMatch[2].trim(),
+    };
+  }
+
+  return null;
 }
 
 function parseVariableCommand(message) {
