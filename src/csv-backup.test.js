@@ -29,6 +29,20 @@ describe("csv backup", () => {
     assert.match(exported.csv, /refund/);
   });
 
+  it("exports only transactions for the requested chat", async () => {
+    const database = await createTestDatabase();
+    await saveTransactions(database, [
+      { ...sampleTransactions()[0], chatId: 111 },
+      { ...sampleTransactions()[1], chatId: 222 },
+    ]);
+
+    const exported = await exportTransactionsToCsv(database, { chatId: 111 });
+
+    assert.equal(exported.count, 1);
+    assert.match(exported.csv, /bensin/);
+    assert.doesNotMatch(exported.csv, /refund/);
+  });
+
   it("parses exported csv and supports dry run import", async () => {
     const source = await createTestDatabase();
     await saveTransactions(source, sampleTransactions());

@@ -695,6 +695,25 @@ describe("message handler", () => {
     assert.doesNotMatch(history.reply, /makan/);
   });
 
+  it("does not delete or edit transactions across chat ids", async () => {
+    const database = await createTestDatabase();
+
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "makan", category: "food", chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport", chatId: 456 });
+
+    const deleteOther = await handleMessage(database, "hapus 2", { chatId: 123 });
+    const editOther = await handleMessage(database, "edit 2 refund 25k", { chatId: 123, defaultTransactionType: "income" });
+    const ownHistory = await handleMessage(database, "riwayat", { chatId: 123 });
+    const otherHistory = await handleMessage(database, "riwayat", { chatId: 456 });
+
+    assert.equal(deleteOther.ok, false);
+    assert.equal(editOther.ok, false);
+    assert.match(ownHistory.reply, /makan/);
+    assert.doesNotMatch(ownHistory.reply, /bensin/);
+    assert.match(otherHistory.reply, /bensin/);
+    assert.doesNotMatch(otherHistory.reply, /refund/);
+  });
+
   it("searches transactions", async () => {
     const database = await createTestDatabase();
 
@@ -874,7 +893,7 @@ describe("message handler", () => {
   it("sets and shows monthly budget progress", async () => {
     const database = await createTestDatabase();
 
-    await saveAiTransaction(database, { type: "expense", amount: 450000, note: "makan", category: "food" });
+    await saveAiTransaction(database, { type: "expense", amount: 450000, note: "makan", category: "food", chatId: 123 });
     const saved = await handleMessage(database, "budget food 700k", { chatId: 123 });
     const listed = await handleMessage(database, "cek budget", { chatId: 123 });
 
@@ -889,8 +908,8 @@ describe("message handler", () => {
   it("supports global and weekly budget commands", async () => {
     const database = await createTestDatabase();
 
-    await saveAiTransaction(database, { type: "expense", amount: 90000, note: "makan", category: "food" });
-    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "parkir", category: "transport" });
+    await saveAiTransaction(database, { type: "expense", amount: 90000, note: "makan", category: "food", chatId: 123 });
+    await saveAiTransaction(database, { type: "expense", amount: 10000, note: "parkir", category: "transport", chatId: 123 });
 
     const saved = await handleMessage(database, "budget minggu global 120k", { chatId: 123 });
     const listed = await handleMessage(database, "cek budget minggu", { chatId: 123 });
@@ -966,7 +985,7 @@ describe("message handler", () => {
   it("returns manual budget suggestion fallback", async () => {
     const database = await createTestDatabase();
 
-    await saveAiTransaction(database, { type: "expense", amount: 90000, note: "makan", category: "food" });
+    await saveAiTransaction(database, { type: "expense", amount: 90000, note: "makan", category: "food", chatId: 123 });
     await handleMessage(database, "budget food 100k", { chatId: 123 });
 
     const result = await handleMessage(database, "saran budget", {
@@ -986,7 +1005,7 @@ describe("message handler", () => {
   it("wraps and sanitizes AI budget suggestions", async () => {
     const database = await createTestDatabase();
 
-    await saveAiTransaction(database, { type: "expense", amount: 90000, note: "makan", category: "food" });
+    await saveAiTransaction(database, { type: "expense", amount: 90000, note: "makan", category: "food", chatId: 123 });
     await handleMessage(database, "budget food 100k", { chatId: 123 });
 
     const result = await handleMessage(database, "saran budget", {

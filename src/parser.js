@@ -40,7 +40,7 @@ const COMMAND_PATTERNS = [
   },
   {
     command: "delete_last",
-    aliases: ["hapus terakhir", "batal", "hapus transaksi terakhir", "hapus yang terakhir"],
+    aliases: ["hapus terakhir", "hapus transaksi terakhir", "hapus yang terakhir"],
   },
   {
     command: "undo_delete",
@@ -565,8 +565,7 @@ function calculateConfidence({ note, category, date, paymentMethod }) {
 }
 
 function normalizeNumber(value) {
-  let text = String(value ?? "").trim().replace(/\s+/g, "");
-  text = text.replace(/^\+/, "").replace(/^-/, "");
+  const text = String(value ?? "").trim().replace(/\s+/g, "");
 
   if (!text) {
     return NaN;

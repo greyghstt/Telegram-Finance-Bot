@@ -48,13 +48,14 @@ async function createTestDatabase() {
   return database;
 }
 
-function transaction({ type = "expense", amount, note, category = "other", wallet = null }) {
+function transaction({ type = "expense", amount, note, category = "other", wallet = null, chatId = null }) {
   return {
     type,
     amount,
     note,
     category,
     wallet,
+    chatId,
     paymentMethod: null,
     date: null,
     tags: [],
@@ -380,5 +381,70 @@ describe("database", () => {
     assert.equal(updated.id, saved.id);
     assert.equal(updated.category, "kopi");
     assert.equal((await listTransactions(database))[0].category, "kopi");
+  });
+
+  it("scopes transaction mutations by chat id", async () => {
+    const database = await createTestDatabase();
+    const chatOne = 111;
+    const chatTwo = 222;
+    const [owned, other] = await saveTransactions(database, [
+      transaction({ amount: 10000, note: "makan", category: "food", chatId: chatOne }),
+      transaction({ amount: 20000, note: "bensin", category: "transport", chatId: chatTwo }),
+    ]);
+
+    assert.equal(await deleteTransactionById(database, other.id, chatOne), null);
+    assert.equal((await listTransactions(database, { chatId: chatTwo })).length, 1);
+
+    const deleted = await deleteTransactionById(database, owned.id, chatOne);
+    assert.equal(deleted.id, owned.id);
+    assert.equal((await listTransactions(database, { chatId: chatOne })).length, 0);
+    assert.equal((await listTransactions(database, { chatId: chatTwo })).length, 1);
+
+    assert.equal(await restoreTransactionById(database, owned.id, chatTwo), null);
+    const restored = await restoreTransactionById(database, owned.id, chatOne);
+    assert.equal(restored.id, owned.id);
+
+    const replacement = transaction({ type: "income", amount: 30000, note: "refund", category: "income", chatId: chatOne });
+    assert.equal(await updateTransactionById(database, other.id, replacement, chatOne), null);
+    const updated = await updateTransactionById(database, owned.id, replacement, chatOne);
+    assert.equal(updated.amount, 30000);
+
+    assert.equal(await updateTransactionCategory(database, other.id, "food", chatOne), null);
+    assert.equal((await updateTransactionCategory(database, owned.id, "food", chatOne)).category, "food");
+  });
+
+  it("scopes delete last and reset by chat id", async () => {
+    const database = await createTestDatabase();
+    const chatOne = 111;
+    const chatTwo = 222;
+    await saveTransactions(database, [
+      transaction({ amount: 10000, note: "makan", category: "food", chatId: chatOne }),
+      transaction({ amount: 20000, note: "bensin", category: "transport", chatId: chatTwo }),
+      transaction({ amount: 30000, note: "kopi", category: "food", chatId: chatOne }),
+    ]);
+
+    const deleted = await deleteLastTransaction(database, chatOne);
+    assert.equal(deleted.note, "kopi");
+    assert.equal((await listTransactions(database, { chatId: chatOne })).length, 1);
+    assert.equal((await listTransactions(database, { chatId: chatTwo })).length, 1);
+
+    const result = await clearAllTransactions(database, chatOne);
+    assert.equal(result.deletedCount, 1);
+    assert.equal((await listTransactions(database, { chatId: chatOne })).length, 0);
+    assert.equal((await listTransactions(database, { chatId: chatTwo })).length, 1);
+  });
+
+  it("calculates budget progress within chat scope", async () => {
+    const database = await createTestDatabase();
+    await saveTransactions(database, [
+      transaction({ amount: 10000, note: "makan", category: "food", chatId: 111 }),
+      transaction({ amount: 90000, note: "makan besar", category: "food", chatId: 222 }),
+    ]);
+    await saveBudget(database, { chatId: 111, category: "food", monthlyLimit: 100000 });
+
+    const progress = await getBudgetProgress(database, 111);
+
+    assert.equal(progress[0].spent, 10000);
+    assert.equal(progress[0].percent, 10);
   });
 });

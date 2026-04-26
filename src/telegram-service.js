@@ -5,7 +5,9 @@ import {
   clearChatSessionPendingAction,
   getChatSession,
   getSummary,
+  getWalletBalances,
   saveTransactions,
+  saveWalletBalanceEntry,
   setChatSessionMode,
   setChatSessionPendingAction,
 } from "./database.js";
@@ -357,8 +359,8 @@ async function handlePendingResetAction(database, token, chatId, text) {
     return { ok: false, kind: "reset_confirmation_mismatch" };
   }
 
-  const result = await clearAllTransactions(database);
-  const summary = await getSummary(database);
+  const result = await clearAllTransactions(database, chatId);
+  const summary = await getSummary(database, { chatId });
   await clearChatSessionPendingAction(database, chatId);
 
   const reply = result.deletedCount > 0
@@ -477,8 +479,8 @@ async function handlePendingTransactionClarification(database, token, chatId, te
     transactions.push(transaction);
   }
 
-  const saved = await saveTransactions(database, transactions);
-  const summary = await getSummary(database);
+  const saved = await saveTransactions(database, transactions.map((transaction) => ({ ...transaction, chatId })));
+  const summary = await getSummary(database, { chatId });
   await clearChatSessionPendingAction(database, chatId);
 
   const label = type === "income" ? "pemasukan" : "pengeluaran";
@@ -539,8 +541,8 @@ async function handlePendingWalletSelection(database, token, chatId, text, sessi
     return { ok: false, kind: "wallet_selection_invalid" };
   }
 
-  const saved = await saveTransactions(database, [transactionToSave]);
-  const summary = await getSummary(database);
+  const saved = await saveTransactions(database, [{ ...transactionToSave, chatId }]);
+  const summary = await getSummary(database, { chatId });
   await clearChatSessionPendingAction(database, chatId);
   await sendTelegramMessage(token, chatId, [
     `Pengeluaran tercatat${walletChoice ? ` dari ${walletChoice}` : " tanpa dompet"}.`,
@@ -587,16 +589,9 @@ async function handlePendingWalletActionClarification(database, token, chatId, t
 
   await clearChatSessionPendingAction(database, chatId);
 
-  const effectiveIntent = normalized === "1" ? intent.intent : "transaction_income_to_wallet";
-  const messageToHandle = normalized === "1"
-    ? `${intent.intent === "wallet_balance_set" ? "set" : "tambah"} saldo dompet ${intent.wallet} ${intent.amount}`
-    : `pemasukan ${intent.amount} ke dompet ${intent.wallet}${intent.note ? ` ${intent.note}` : ""}`;
-
-  const result = await handleMessage(database, messageToHandle, {
-    chatId,
-    defaultTransactionType: normalized === "2" ? "income" : null,
-    logger: createPerformanceLogger(),
-  });
+  const result = normalized === "1"
+    ? await executeWalletBalanceClarification(database, chatId, intent)
+    : await executeWalletIncomeClarification(database, chatId, intent);
 
   await sendTelegramMessage(token, chatId, result.reply, { replyMarkup: mainKeyboard });
 
@@ -605,6 +600,74 @@ async function handlePendingWalletActionClarification(database, token, chatId, t
     kind: "wallet_action_executed",
     choice: normalized === "1" ? "set_balance" : "income_transaction",
     result,
+  };
+}
+
+async function executeWalletBalanceClarification(database, chatId, intent) {
+  const amount = Number(intent.amount);
+  const wallet = String(intent.wallet ?? "").trim().toLowerCase();
+  const action = intent.intent === "wallet_balance_adjust" ? "adjust" : "set";
+
+  if (!wallet || !Number.isSafeInteger(amount) || amount < 0) {
+    return { ok: false, kind: "wallet_action_invalid", reply: "Klarifikasi dompet belum valid. Kirim ulang perintah." };
+  }
+
+  const entry = await saveWalletBalanceEntry(database, {
+    chatId,
+    wallet,
+    action,
+    amount,
+    note: intent.note ?? (action === "set" ? "set saldo dompet" : "adjust saldo dompet"),
+  });
+  const wallets = await getWalletBalances(database, chatId);
+
+  return {
+    ok: true,
+    kind: "wallet_balance_clarified",
+    entry,
+    wallets,
+    reply: [
+      action === "set"
+        ? `Saldo ${wallet} diatur ke ${formatSimpleRupiah(amount)}.`
+        : `Saldo ${wallet} naik ${formatSimpleRupiah(amount)}.`,
+      "",
+      ...wallets.map((item) => `${item.name}: ${formatSimpleRupiah(item.balance)}`),
+    ].join("\n"),
+  };
+}
+
+async function executeWalletIncomeClarification(database, chatId, intent) {
+  const amount = Number(intent.amount);
+  const wallet = String(intent.wallet ?? "").trim().toLowerCase();
+  const note = String(intent.note ?? "pemasukan dompet").trim();
+
+  if (!wallet || !Number.isSafeInteger(amount) || amount <= 0 || !note) {
+    return { ok: false, kind: "wallet_income_invalid", reply: "Klarifikasi pemasukan belum valid. Kirim ulang perintah." };
+  }
+
+  const saved = await saveTransactions(database, [{
+    chatId,
+    type: "income",
+    amount,
+    note,
+    category: "income",
+    wallet,
+    rawAmount: String(amount),
+    original: intent.original ?? note,
+    confidence: 0.9,
+  }]);
+  const summary = await getSummary(database, { chatId });
+
+  return {
+    ok: true,
+    kind: "wallet_income_clarified",
+    saved,
+    summary,
+    reply: [
+      `Pemasukan tercatat ke ${wallet}.`,
+      "Tercatat: 1 transaksi",
+      `Saldo: ${formatSimpleRupiah(summary.balance)}`,
+    ].join("\n"),
   };
 }
 

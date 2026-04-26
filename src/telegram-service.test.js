@@ -283,6 +283,44 @@ describe("telegram service", () => {
     assert.match(readJsonBody(replies.at(-1)).text, /Data transaksi direset/i);
   });
 
+  it("resets only the current Telegram chat", async () => {
+    const database = await createTestDatabase();
+    const replies = [];
+    mockTelegramFetch(replies);
+    const allowedChatIds = new Set(["123456789", "987654321"]);
+
+    for (const chatId of [123456789, 987654321]) {
+      await processTelegramUpdate({
+        database,
+        update: textUpdate("Input Pengeluaran", chatId),
+        token: "test-token",
+        allowedChatIds,
+      });
+      await processTelegramUpdate({
+        database,
+        update: textUpdate(chatId === 123456789 ? "20k bensin" : "30k makan", chatId),
+        token: "test-token",
+        allowedChatIds,
+      });
+    }
+
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("/reset", 123456789),
+      token: "test-token",
+      allowedChatIds,
+    });
+    await processTelegramUpdate({
+      database,
+      update: textUpdate("YA RESET", 123456789),
+      token: "test-token",
+      allowedChatIds,
+    });
+
+    assert.equal((await listTransactions(database, { chatId: 123456789 })).length, 0);
+    assert.equal((await listTransactions(database, { chatId: 987654321 })).length, 1);
+  });
+
   it("saves pending ambiguous AI transactions after type clarification", async () => {
     const database = await createTestDatabase();
     const replies = [];
@@ -316,6 +354,8 @@ describe("telegram service", () => {
     assert.equal(transactions.length, 1);
     assert.equal(transactions[0].type, "expense");
     assert.equal(transactions[0].amount, 50000);
+    assert.equal((await listTransactions(database, { chatId: 123456789 })).length, 1);
+    assert.equal((await listTransactions(database, { chatId: 987654321 })).length, 0);
     assert.equal(session.pendingAction, null);
     assert.match(readJsonBody(replies.at(-1)).text, /Dicatat sebagai pengeluaran/);
   });

@@ -738,8 +738,9 @@ async function saveValidatedTransactions(database, transactions, kind, options, 
     return walletResolution;
   }
 
+  const chatId = getChatId(options);
   const saved = await measureDb(options, "saveTransactions", () =>
-    saveTransactions(database, walletResolution.transactions));
+    saveTransactions(database, walletResolution.transactions.map((transaction) => ({ ...transaction, chatId }))));
   const summary = await measureDb(options, "getSummary", () => getSummary(database, { chatId: getChatId(options) }));
   const reply = extras.prefix
     ? [extras.prefix, "", buildSavedReply(saved, summary)].join("\n")
@@ -1119,7 +1120,7 @@ async function buildCategoryCorrectionResponse(database, command, options) {
 
   await ensureCustomCategory(database, category, command.category, options, context);
   const updated = await measureDb(options, "updateTransactionCategory", () =>
-    updateTransactionCategory(database, command.id, category));
+    updateTransactionCategory(database, command.id, category, getChatId(options)));
 
   if (!updated) {
     return {
@@ -2312,7 +2313,8 @@ function aiFallbackLabel(reason) {
 }
 
 async function buildDeleteLastResponse(database, options) {
-  const deleted = await measureDb(options, "deleteLastTransaction", () => deleteLastTransaction(database));
+  const chatId = getChatId(options);
+  const deleted = await measureDb(options, "deleteLastTransaction", () => deleteLastTransaction(database, chatId));
 
   if (!deleted) {
     return {
@@ -2345,7 +2347,7 @@ async function buildDeleteLastResponse(database, options) {
 
 async function buildDeleteByIdResponse(database, id, options) {
   const deleted = await measureDb(options, "deleteTransactionById", () =>
-    deleteTransactionById(database, id));
+    deleteTransactionById(database, id, getChatId(options)));
 
   if (!deleted) {
     return {
@@ -2405,7 +2407,7 @@ async function buildUndoDeleteResponse(database, options) {
   }
 
   const restored = await measureDb(options, "restoreTransactionById", () =>
-    restoreTransactionById(database, transactionId));
+    restoreTransactionById(database, transactionId, chatId));
 
   if (!restored) {
     await measureDb(options, "clearChatSessionPendingAction", () =>
@@ -2453,7 +2455,7 @@ async function buildEditByIdResponse(database, command, options) {
   }
 
   const updated = await measureDb(options, "updateTransactionById", () =>
-    updateTransactionById(database, command.id, parsed.transaction));
+    updateTransactionById(database, command.id, parsed.transaction, getChatId(options)));
 
   if (!updated) {
     return {
@@ -2509,7 +2511,7 @@ async function buildSearchResponse(database, query, options) {
 async function buildExportResponse(database, options) {
   const generatedAt = new Date().toISOString();
   const exported = await measureDb(options, "exportTransactionsToCsv", () =>
-    exportTransactionsToCsv(database, { limit: 1000 }));
+    exportTransactionsToCsv(database, { limit: 1000, chatId: getChatId(options) }));
 
   return {
     ok: true,

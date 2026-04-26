@@ -14,7 +14,7 @@ const CSV_HEADER = [
 ].join(",");
 
 export async function exportTransactionsToCsv(database, options = {}) {
-  const transactions = await listTransactions(database, { limit: options.limit ?? 1000 });
+  const transactions = await listTransactions(database, { limit: options.limit ?? 1000, chatId: options.chatId ?? null });
   const rows = transactions.map((transaction) =>
     [
       transaction.id,

@@ -36,6 +36,10 @@ async function ensureDatabaseReady() {
   await databaseReadyPromise;
 }
 
+function getQueryChatId(req) {
+  return req.query.chatId ?? req.query.chat_id ?? null;
+}
+
 app.use(express.json());
 
 app.get("/", (req, res) => {
@@ -120,7 +124,7 @@ app.post("/transactions", requireAdmin, async (req, res) => {
     kind: parsed.kind,
     saved,
     count: saved.length,
-    summary: await getSummary(database),
+    summary: await getSummary(database, { chatId: getQueryChatId(req) }),
   });
 });
 
@@ -131,6 +135,7 @@ app.get("/transactions", requireAdmin, async (req, res) => {
     transactions: await listTransactions(database, {
       limit: req.query.limit,
       offset: req.query.offset,
+      chatId: getQueryChatId(req),
     }),
   });
 });
@@ -139,13 +144,13 @@ app.get("/summary", requireAdmin, async (req, res) => {
   await ensureDatabaseReady();
   res.json({
     ok: true,
-    summary: await getSummary(database),
+    summary: await getSummary(database, { chatId: getQueryChatId(req) }),
   });
 });
 
 app.delete("/transactions/last", requireAdmin, async (req, res) => {
   await ensureDatabaseReady();
-  const deleted = await deleteLastTransaction(database);
+  const deleted = await deleteLastTransaction(database, getQueryChatId(req));
 
   if (!deleted) {
     res.status(404).json({
@@ -159,7 +164,7 @@ app.delete("/transactions/last", requireAdmin, async (req, res) => {
   res.json({
     ok: true,
     deleted,
-    summary: await getSummary(database),
+    summary: await getSummary(database, { chatId: getQueryChatId(req) }),
   });
 });
 
@@ -169,7 +174,7 @@ app.listen(port, () => {
 
 app.get("/backup/csv", requireAdmin, async (req, res) => {
   await ensureDatabaseReady();
-  const exported = await exportTransactionsToCsv(database, { limit: req.query.limit ?? 10000 });
+  const exported = await exportTransactionsToCsv(database, { limit: req.query.limit ?? 10000, chatId: getQueryChatId(req) });
   const filename = `telegram-finance-bot-backup-${new Date().toISOString().slice(0, 10)}.csv`;
   res.setHeader("content-type", "text/csv; charset=utf-8");
   res.setHeader("content-disposition", `attachment; filename="${filename}"`);

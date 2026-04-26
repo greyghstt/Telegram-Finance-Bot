@@ -570,35 +570,41 @@ export async function saveTransactions(database, transactions) {
   }
 }
 
-export async function getTransactionById(database, id) {
+export async function getTransactionById(database, id, chatId = null) {
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
+
   if (database.kind === "postgres") {
     const rows = await database.client`
       select *
       from public.transactions
       where id = ${id} and deleted_at is null
+        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
   const row = database.client
-    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL")
-    .get(id);
+    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
+    .get(id, cleanChatId, cleanChatId);
   return row ? mapTransactionRow(row) : null;
 }
 
-export async function getDeletedTransactionById(database, id) {
+export async function getDeletedTransactionById(database, id, chatId = null) {
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
+
   if (database.kind === "postgres") {
     const rows = await database.client`
       select *
       from public.transactions
       where id = ${id} and deleted_at is not null
+        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
   const row = database.client
-    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NOT NULL")
-    .get(id);
+    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NOT NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
+    .get(id, cleanChatId, cleanChatId);
   return row ? mapTransactionRow(row) : null;
 }
 
@@ -863,8 +869,8 @@ export async function clearBudgets(database, chatId, { period = "monthly" } = {}
 
 export async function getBudgetProgress(database, chatId, { from, to, period = "monthly" } = {}) {
   const budgets = await listBudgets(database, chatId, { period });
-  const categories = await getCategorySummary(database, { from, to, limit: 20 });
-  const summary = await getSummary(database, { from, to });
+  const categories = await getCategorySummary(database, { from, to, limit: 20, chatId });
+  const summary = await getSummary(database, { from, to, chatId });
 
   return budgets.map((budget) => {
     const category = categories.find((item) => item.category === budget.category);
@@ -1441,9 +1447,10 @@ export async function listCategoryAliases(database, chatId) {
     .map(mapCategoryAliasRow);
 }
 
-export async function updateTransactionCategory(database, id, category) {
+export async function updateTransactionCategory(database, id, category, chatId = null) {
   const transactionId = Number.parseInt(id, 10);
   const cleanCategory = normalizeCategory(category);
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (!Number.isSafeInteger(transactionId) || transactionId <= 0 || !cleanCategory) {
     return null;
@@ -1454,6 +1461,7 @@ export async function updateTransactionCategory(database, id, category) {
       update public.transactions
       set category = ${cleanCategory}, updated_at = now()
       where id = ${transactionId} and deleted_at is null
+        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
@@ -1461,14 +1469,15 @@ export async function updateTransactionCategory(database, id, category) {
 
   const now = new Date().toISOString();
   const result = database.client
-    .prepare("UPDATE transactions SET category = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
-    .run(cleanCategory, now, transactionId);
+    .prepare("UPDATE transactions SET category = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
+    .run(cleanCategory, now, transactionId, cleanChatId, cleanChatId);
 
-  return result.changes > 0 ? getTransactionById(database, transactionId) : null;
+  return result.changes > 0 ? getTransactionById(database, transactionId, cleanChatId) : null;
 }
 
-export async function updateTransactionById(database, id, transaction) {
+export async function updateTransactionById(database, id, transaction, chatId = null) {
   const transactionId = Number.parseInt(id, 10);
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (!Number.isSafeInteger(transactionId) || transactionId <= 0) {
     return null;
@@ -1494,6 +1503,7 @@ export async function updateTransactionById(database, id, transaction) {
         confidence = ${payload.confidence},
         updated_at = now()
       where id = ${transactionId} and deleted_at is null
+        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
@@ -1506,7 +1516,7 @@ export async function updateTransactionById(database, id, transaction) {
        SET type = ?, amount = ?, note = ?, category = ?, wallet = ?, payment_method = ?,
            date_kind = ?, date_value = ?, tags_json = ?, raw_amount = ?,
            original = ?, confidence = ?, updated_at = ?
-       WHERE id = ? AND deleted_at IS NULL`,
+       WHERE id = ? AND deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)`,
     )
     .run(
       payload.type,
@@ -1523,12 +1533,16 @@ export async function updateTransactionById(database, id, transaction) {
       payload.confidence,
       now,
       transactionId,
+      cleanChatId,
+      cleanChatId,
     );
 
-  return result.changes > 0 ? getTransactionById(database, transactionId) : null;
+  return result.changes > 0 ? getTransactionById(database, transactionId, cleanChatId) : null;
 }
 
-export async function deleteLastTransaction(database) {
+export async function deleteLastTransaction(database, chatId = null) {
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
+
   if (database.kind === "postgres") {
     const rows = await database.client`
       update public.transactions
@@ -1536,6 +1550,7 @@ export async function deleteLastTransaction(database) {
       where id = (
         select id from public.transactions
         where deleted_at is null
+          and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
         order by id desc
         limit 1
       )
@@ -1545,8 +1560,8 @@ export async function deleteLastTransaction(database) {
   }
 
   const row = database.client
-    .prepare("SELECT * FROM transactions WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 1")
-    .get();
+    .prepare("SELECT * FROM transactions WHERE deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL) ORDER BY id DESC LIMIT 1")
+    .get(cleanChatId, cleanChatId);
 
   if (!row) {
     return null;
@@ -1554,13 +1569,14 @@ export async function deleteLastTransaction(database) {
 
   const now = new Date().toISOString();
   database.client
-    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ?")
-    .run(now, now, row.id);
-  return getDeletedTransactionById(database, row.id);
+    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ? AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
+    .run(now, now, row.id, cleanChatId, cleanChatId);
+  return getDeletedTransactionById(database, row.id, cleanChatId);
 }
 
-export async function deleteTransactionById(database, id) {
+export async function deleteTransactionById(database, id, chatId = null) {
   const transactionId = Number.parseInt(id, 10);
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (!Number.isSafeInteger(transactionId) || transactionId <= 0) {
     return null;
@@ -1571,14 +1587,15 @@ export async function deleteTransactionById(database, id) {
       update public.transactions
       set deleted_at = now(), updated_at = now()
       where id = ${transactionId} and deleted_at is null
+        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
   const row = database.client
-    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL")
-    .get(transactionId);
+    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
+    .get(transactionId, cleanChatId, cleanChatId);
 
   if (!row) {
     return null;
@@ -1586,13 +1603,14 @@ export async function deleteTransactionById(database, id) {
 
   const now = new Date().toISOString();
   database.client
-    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ?")
-    .run(now, now, transactionId);
-  return getDeletedTransactionById(database, transactionId);
+    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ? AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
+    .run(now, now, transactionId, cleanChatId, cleanChatId);
+  return getDeletedTransactionById(database, transactionId, cleanChatId);
 }
 
-export async function restoreTransactionById(database, id) {
+export async function restoreTransactionById(database, id, chatId = null) {
   const transactionId = Number.parseInt(id, 10);
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (!Number.isSafeInteger(transactionId) || transactionId <= 0) {
     return null;
@@ -1603,6 +1621,7 @@ export async function restoreTransactionById(database, id) {
       update public.transactions
       set deleted_at = null, updated_at = now()
       where id = ${transactionId} and deleted_at is not null
+        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
@@ -1610,18 +1629,21 @@ export async function restoreTransactionById(database, id) {
 
   const now = new Date().toISOString();
   const result = database.client
-    .prepare("UPDATE transactions SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL")
-    .run(now, transactionId);
+    .prepare("UPDATE transactions SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
+    .run(now, transactionId, cleanChatId, cleanChatId);
 
-  return result.changes > 0 ? getTransactionById(database, transactionId) : null;
+  return result.changes > 0 ? getTransactionById(database, transactionId, cleanChatId) : null;
 }
 
-export async function clearAllTransactions(database) {
+export async function clearAllTransactions(database, chatId = null) {
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
+
   if (database.kind === "postgres") {
     const rows = await database.client`
       update public.transactions
       set deleted_at = now(), updated_at = now()
       where deleted_at is null
+        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
       returning id
     `;
     return {
@@ -1630,12 +1652,12 @@ export async function clearAllTransactions(database) {
   }
 
   const row = database.client
-    .prepare("SELECT COUNT(*) AS count FROM transactions WHERE deleted_at IS NULL")
-    .get();
+    .prepare("SELECT COUNT(*) AS count FROM transactions WHERE deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
+    .get(cleanChatId, cleanChatId);
   const now = new Date().toISOString();
   database.client
-    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL")
-    .run(now, now);
+    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
+    .run(now, now, cleanChatId, cleanChatId);
 
   return {
     deletedCount: Number(row.count),
