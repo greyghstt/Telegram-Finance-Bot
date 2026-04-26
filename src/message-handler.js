@@ -440,8 +440,8 @@ function elapsedMs(startedAt) {
 function buildSavedReply(saved, summary) {
   const title =
     saved.length === 1
-      ? "Tersimpan: 1 transaksi"
-      : `Tersimpan: ${saved.length} transaksi`;
+      ? "Tercatat: 1 transaksi"
+      : `Tercatat: ${saved.length} transaksi`;
   const lines = [title, ""];
 
   for (const transaction of saved.slice(0, 5)) {
@@ -449,7 +449,7 @@ function buildSavedReply(saved, summary) {
   }
 
   if (saved.length > 5) {
-    lines.push(`...dan ${saved.length - 5} transaksi lain.`);
+    lines.push(`+${saved.length - 5} transaksi lain.`);
   }
 
   lines.push("");
@@ -469,7 +469,7 @@ async function buildBalanceResponse(database, options) {
     command: "balance",
     summary,
     reply: [
-      "Saldo saat ini",
+      "Saldo",
       "",
       `Saldo: ${formatRupiah(summary.balance)}`,
       `Masuk: ${formatRupiah(summary.totalIncome)}`,
@@ -528,7 +528,7 @@ async function buildPeriodResponse(database, period, options) {
 async function buildHistoryResponse(database, options) {
   const transactions = await measureDb(options, "listTransactions", () =>
     listTransactions(database, { limit: 10 }));
-  const lines = ["Riwayat transaksi terakhir"];
+  const lines = ["Riwayat terakhir"];
 
   if (transactions.length === 0) {
     lines.push("", "Belum ada transaksi.");
@@ -690,7 +690,7 @@ async function handleAiTransactions(database, result, originalMessage, options) 
   return saveValidatedTransactions(database, validation.transactions, "ai_transactions", options, {
     command: "ai_intent_router",
     ai: result,
-    prefix: "Transaksi dari AI tervalidasi.",
+    prefix: "Tercatat dari AI.",
   });
 }
 
@@ -876,7 +876,7 @@ async function buildBudgetSetResponse(database, command, options) {
       ok: false,
       kind: "error",
       command: "budget_set",
-      reply: "Nominal budget belum valid. Contoh: budget food 700k atau budget minggu global 500k",
+      reply: "Nominal budget belum valid. Contoh: budget food 700k",
     };
   }
 
@@ -896,8 +896,7 @@ async function buildBudgetSetResponse(database, command, options) {
     budgets: data.budgets,
     reply: [
       `Budget ${formatCategoryLabel(budget.category)} disimpan.`,
-      "",
-      `${formatCategoryLabel(budget.category)}: ${formatRupiah(budget.monthlyLimit)} per ${budgetPeriodUnitLabel(budget.period)}`,
+      `${formatRupiah(budget.monthlyLimit)} per ${budgetPeriodUnitLabel(budget.period)}`,
       "",
       buildBudgetProgressReply(data),
     ].join("\n"),
@@ -937,13 +936,13 @@ async function buildBudgetResetInstructionResponse(database, options) {
     command: "budget_reset",
     budgets,
     reply: [
-      "Reset budget butuh konfirmasi.",
+      "Reset budget perlu konfirmasi.",
+      `Budget ${periodLabel(period)}: ${budgets.length}`,
       "",
-      `Jumlah budget ${periodLabel(period)}: ${budgets.length}`,
-      "Di Telegram, pakai reset budget lalu balas:",
+      "Balas persis:",
       "YA RESET BUDGET",
       "",
-      "Ketik /batal untuk membatalkan.",
+      "Ketik /batal untuk batal.",
     ].join("\n"),
   };
 }
@@ -988,10 +987,7 @@ async function buildCustomCategorySaveResponse(database, command, options) {
     category: saved,
     reply: [
       "Kategori disimpan.",
-      "",
       `${saved.category}: ${saved.label}`,
-      "",
-      `Pakai: kategori ${saved.category}`,
     ].join("\n"),
   };
 }
@@ -1138,7 +1134,7 @@ async function buildWalletBalanceQueryResponse(database, command, options) {
     command: "wallet_balance_query",
     wallets: balances,
     reply: wallet
-      ? `Saldo dompet ${capitalizeFirst(wallet.name)}: ${formatRupiah(wallet.balance)}`
+      ? `Saldo ${capitalizeFirst(wallet.name)}: ${formatRupiah(wallet.balance)}`
       : `Dompet ${capitalizeFirst(command.wallet)} belum ada.`,
   };
 }
@@ -1166,14 +1162,14 @@ async function buildWalletBalanceSetResponse(database, command, options) {
     command: "wallet_balance_set",
     entry,
     wallets: balances,
-    reply: [`Saldo dompet ${command.wallet} diatur ke ${formatRupiah(amount)}.`, "", buildWalletSummaryLines(balances).join("\n")].join("\n"),
+    reply: [`Saldo ${command.wallet} diatur ke ${formatRupiah(amount)}.`, "", buildWalletSummaryLines(balances).join("\n")].join("\n"),
   };
 }
 
 async function buildWalletBalanceAdjustResponse(database, command, options) {
   const amount = parseSignedBudgetAmount(command.amountText);
   if (!Number.isSafeInteger(amount) || amount === 0) {
-    return { ok: false, kind: "error", command: "wallet_balance_adjust", reply: "Adjustment dompet belum valid. Contoh: tambah saldo dompet bank 20k" };
+    return { ok: false, kind: "error", command: "wallet_balance_adjust", reply: "Perubahan saldo belum valid. Contoh: tambah saldo dompet bank 20k" };
   }
 
   const entry = await measureDb(options, "saveWalletBalanceEntry", () =>
@@ -1193,7 +1189,7 @@ async function buildWalletBalanceAdjustResponse(database, command, options) {
     command: "wallet_balance_adjust",
     entry,
     wallets: balances,
-    reply: [`Saldo dompet ${command.wallet} disesuaikan ${amount > 0 ? "naik" : "turun"} ${formatRupiah(Math.abs(amount))}.`, "", buildWalletSummaryLines(balances).join("\n")].join("\n"),
+    reply: [`Saldo ${command.wallet} ${amount > 0 ? "naik" : "turun"} ${formatRupiah(Math.abs(amount))}.`, "", buildWalletSummaryLines(balances).join("\n")].join("\n"),
   };
 }
 
@@ -1221,7 +1217,8 @@ async function buildTransferSaveResponse(database, command, options) {
     transfer,
     wallets: balances,
     reply: [
-      `Transfer ${formatRupiah(transfer.amount)} dari ${transfer.fromWallet} ke ${transfer.toWallet} tersimpan.`,
+      `Transfer tercatat: ${formatRupiah(transfer.amount)}`,
+      `${transfer.fromWallet} -> ${transfer.toWallet}`,
       "",
       buildWalletSummaryLines(balances).join("\n"),
     ].join("\n"),
@@ -1258,7 +1255,7 @@ async function buildRecurringSaveResponse(database, command, options) {
     kind: "command",
     command: "recurring_save",
     rule,
-    reply: `Transaksi rutin ${cadenceLabel(rule.cadence)} disimpan. ID: ${rule.id}`,
+    reply: `Transaksi rutin disimpan: #${rule.id} (${cadenceLabel(rule.cadence)})`,
   };
 }
 
@@ -1294,14 +1291,14 @@ async function buildBillSaveResponse(database, command, options) {
       category: command.category,
       dueDay: command.dueDay,
     }));
-  return { ok: true, kind: "command", command: "bill_save", reminder, reply: `Tagihan ${reminder.title} disimpan. Jatuh tempo tiap tanggal ${reminder.dueDay}.` };
+  return { ok: true, kind: "command", command: "bill_save", reminder, reply: `Tagihan disimpan: ${reminder.title}\nJatuh tempo: tanggal ${reminder.dueDay}` };
 }
 
 async function buildBillListResponse(database, options) {
   const reminders = await measureDb(options, "listBillReminders", () => listBillReminders(database, getChatId(options)));
   const lines = ["Tagihan"];
   if (reminders.length === 0) {
-    lines.push("", "Belum ada reminder tagihan.");
+    lines.push("", "Belum ada tagihan.");
   } else {
     lines.push("");
     for (const reminder of reminders) {
@@ -1461,7 +1458,7 @@ function buildAiInsightReply(data, content) {
 
   if (insight) {
     lines.push("");
-    lines.push("Insight AI:");
+    lines.push("Insight:");
     lines.push(insight);
   }
 
@@ -1529,7 +1526,7 @@ function buildAiQuestionReply(question, data, content) {
 
   if (answer) {
     lines.push("");
-    lines.push("Jawaban AI:");
+    lines.push("Jawaban:");
     lines.push(answer);
   }
 
@@ -1579,7 +1576,7 @@ function buildAiPeriodicReportReply(title, data, content) {
 
   if (report) {
     lines.push("");
-    lines.push("Ringkasan AI:");
+    lines.push("Catatan:");
     lines.push(report);
   }
 
@@ -1635,7 +1632,7 @@ function buildAiAnomalyReply(data, content) {
   const lines = buildAnomalySummaryLines(data);
 
   if (text) {
-    lines.push("", "Analisis AI:", text);
+    lines.push("", "Analisis:", text);
   }
 
   return lines.join("\n");
@@ -1675,7 +1672,7 @@ function buildBudgetProgressReply(data) {
   const lines = [`Budget ${data.periodLabel}`];
 
   if (data.budgets.length === 0) {
-    lines.push("", `Belum ada budget. Contoh: ${budgetExampleForPeriod(data.budgetPeriod)}`);
+    lines.push("", `Belum ada budget. Mulai: ${budgetExampleForPeriod(data.budgetPeriod)}`);
     return lines.join("\n");
   }
 
@@ -1740,7 +1737,7 @@ function buildAiBudgetSuggestionReply(data, content) {
 
   if (suggestion) {
     lines.push("");
-    lines.push("Saran AI:");
+    lines.push("Saran:");
     lines.push(suggestion);
   }
 
@@ -1780,7 +1777,7 @@ function formatBudgetCategoryList(budgets) {
 }
 
 function buildWalletSummaryLines(wallets) {
-  const lines = ["Ringkasan dompet"];
+  const lines = ["Dompet"];
 
   if (!wallets.length) {
     lines.push("", "Belum ada dompet.");
@@ -1835,12 +1832,12 @@ function buildAiFirstFallbackResponse(parsed, message) {
     kind: "clarification",
     parsed,
     reply: [
-      "Aku belum yakin maksud pesan ini.",
+      "Aku belum yakin maksudnya.",
       ...detail,
       "",
-      "Balas salah satu:",
-      "1. Catat sebagai pengeluaran",
-      "2. Catat sebagai pemasukan",
+      "Balas:",
+      "1. Catat pengeluaran",
+      "2. Catat pemasukan",
       "3. Bukan transaksi",
       "",
       `Pesan: ${String(message ?? "").trim()}`,
@@ -1853,9 +1850,9 @@ async function validateAiTransactionCandidates(database, candidates, original, o
     return {
       ok: false,
       reply: [
-        "Format pesan belum dikenali.",
+        "Pesan belum bisa dibaca sebagai transaksi.",
         "",
-        "Kalau mau catat manual, pilih /pemasukan atau /pengeluaran lalu kirim nominal dan catatan.",
+        "Coba tulis nominal dan catatan, misalnya: beli bensin 20k",
       ].join("\n"),
     };
   }
@@ -1882,11 +1879,11 @@ async function validateAiTransactionCandidates(database, candidates, original, o
       return {
         ok: false,
         reply: [
-          "AI belum bisa memvalidasi transaksi ini dengan aman.",
+          "Transaksi belum cukup jelas.",
           "",
-          "Balas salah satu:",
-          "1. Catat sebagai pengeluaran",
-          "2. Catat sebagai pemasukan",
+          "Balas:",
+          "1. Catat pengeluaran",
+          "2. Catat pemasukan",
           "3. Bukan transaksi",
         ].join("\n"),
       };
@@ -1923,12 +1920,12 @@ function buildTransactionClarificationReply(candidates) {
   const lines = [
     "Transaksi masih ambigu.",
     "",
-    "Balas salah satu:",
+    "Balas:",
     "1. Pengeluaran",
     "2. Pemasukan",
     "3. Bukan transaksi",
     "",
-    "Item yang menunggu:",
+    "Menunggu:",
   ];
 
   candidates.slice(0, 3).forEach((candidate, index) => {
@@ -1954,14 +1951,14 @@ function buildWalletActionClarificationResponse(database, originalText, intent, 
       intent,
     },
     reply: [
-      "Input ini masih ambigu.",
+      "Input dompet masih ambigu.",
       "",
       `Pesan: ${originalText}`,
       "",
-      "Balas salah satu:",
+      "Balas:",
       "1. Set saldo dompet",
-      "2. Catat sebagai pemasukan ke dompet",
-      "3. Batal / bukan transaksi",
+      "2. Catat pemasukan ke dompet",
+      "3. Batal",
     ].join("\n"),
   };
 }
@@ -2255,7 +2252,7 @@ async function buildDeleteLastResponse(database, options) {
       "",
       formatTransaction(deleted, { includeTimestamp: true }),
       "",
-      `Saldo sekarang: ${formatRupiah(summary.balance)}`,
+      `Saldo: ${formatRupiah(summary.balance)}`,
       "Ketik undo untuk membatalkan.",
     ].join("\n"),
   };
@@ -2288,7 +2285,7 @@ async function buildDeleteByIdResponse(database, id, options) {
       "",
       formatTransaction(deleted, { includeTimestamp: true }),
       "",
-      `Saldo sekarang: ${formatRupiah(summary.balance)}`,
+      `Saldo: ${formatRupiah(summary.balance)}`,
       "Ketik undo untuk membatalkan.",
     ].join("\n"),
   };
@@ -2300,14 +2297,10 @@ function buildDeleteByTextClarificationResponse(query) {
     kind: "error",
     command: "delete_by_text",
     reply: [
-      "Hapus transaksi butuh ID agar aman.",
+      "Hapus transaksi perlu ID.",
       "",
-      `Pencarian: ${query}`,
-      "",
-      "Langkah cepat:",
-      "1) kirim: cari bensin tadi",
-      "2) pilih ID dari hasil",
-      "3) kirim: hapus 123",
+      `Cari dulu: ${query}`,
+      "Lalu kirim: hapus 123",
     ].join("\n"),
   };
 }
@@ -2355,7 +2348,7 @@ async function buildUndoDeleteResponse(database, options) {
       "",
       formatTransaction(restored, { includeTimestamp: true }),
       "",
-      `Saldo sekarang: ${formatRupiah(summary.balance)}`,
+      `Saldo: ${formatRupiah(summary.balance)}`,
     ].join("\n"),
   };
 }
@@ -2370,7 +2363,7 @@ async function buildEditByIdResponse(database, command, options) {
       ok: false,
       kind: "error",
       command: "edit_by_id",
-      reply: "Format edit belum valid. Contoh: edit 12 beli bensin 20 ribu kategori transport",
+      reply: "Edit belum valid. Contoh: edit 12 beli bensin 20 ribu kategori transport",
     };
   }
 
@@ -2399,7 +2392,7 @@ async function buildEditByIdResponse(database, command, options) {
       "",
       formatTransaction(updated, { includeTimestamp: true }),
       "",
-      `Saldo sekarang: ${formatRupiah(summary.balance)}`,
+      `Saldo: ${formatRupiah(summary.balance)}`,
     ].join("\n"),
   };
 }
@@ -2441,9 +2434,8 @@ async function buildExportResponse(database, options) {
     csv: exported.csv,
     reply: [
       "Export CSV siap.",
-      "",
-      `Jumlah transaksi: ${exported.count}`,
-      "Di Telegram, file CSV akan dikirim sebagai dokumen.",
+      `Transaksi: ${exported.count}`,
+      "File akan dikirim sebagai dokumen.",
     ].join("\n"),
   };
 }
@@ -2454,12 +2446,12 @@ function buildResetInstructionResponse() {
     kind: "command",
     command: "reset_data",
     reply: [
-      "Reset data butuh konfirmasi.",
+      "Reset data perlu konfirmasi.",
       "",
-      "Di Telegram, pakai /reset lalu balas dengan:",
+      "Balas persis:",
       "YA RESET",
       "",
-      "Ketik /batal untuk membatalkan.",
+      "Ketik /batal untuk batal.",
     ].join("\n"),
   };
 }
@@ -2470,57 +2462,34 @@ function buildHelpResponse() {
     kind: "command",
     command: "help",
     reply: [
-      "Format Keuangan Telegram",
+      "Bantuan Keuangan",
       "",
-      "Alur utama:",
-      "/pemasukan lalu ketik 500k gaji",
-      "/pengeluaran lalu ketik 20k bensin",
-      "",
-      "Natural input:",
+      "Catat natural:",
       "beli bensin 20 ribu",
       "gaji freelance masuk 1,5 juta",
       "",
-      "Command:",
+      "Ringkasan:",
       "saldo",
-      "hari ini",
-      "minggu ini",
-      "bulan ini",
-      "riwayat",
-      "kategori",
-      "insight",
+      "hari ini / minggu ini / bulan ini",
+      "riwayat / kategori / insight",
       "tanya bulan ini boros di mana?",
-      "laporan ai minggu ini",
-      "review ai bulan ini",
-      "cek anomali",
-      "budget",
+      "",
+      "Budget:",
       "budget food 700k",
-      "budget minggu global 120k",
       "cek budget minggu",
       "saran budget",
+      "",
+      "Dompet:",
       "dompet tambah cash",
-      "saldo dompet",
-      "saldo dompet bank",
       "set saldo dompet bank 70k",
-      "tambah saldo dompet bank 20k",
-      "default dompet bank",
-      "topup gopay 100k",
-      "dompet",
       "transfer bca cash 50k",
-      "transfer dari bca ke cash 50k",
-      "transaksi rutin tambah bulanan 500k kos kategori housing",
-      "transaksi rutin",
+      "",
+      "Lainnya:",
       "tagihan tambah wifi 250k tiap 15 kategori bills",
-      "tagihan hari ini",
-      "kategori baru kopi Kopi",
-      "alias kategori ngopi = kopi",
-      "koreksi kategori 12 food",
+      "transaksi rutin tambah bulanan 500k kos kategori housing",
       "edit 12 30k bensin",
-      "cari bensin",
-      "hapus terakhir",
-      "undo",
-      "hapus 12",
-      "export csv",
-      "reset",
+      "cari bensin / hapus 12 / undo",
+      "export csv / reset",
     ].join("\n"),
   };
 }

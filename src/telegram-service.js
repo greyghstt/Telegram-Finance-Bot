@@ -27,11 +27,11 @@ export const mainKeyboard = {
   resize_keyboard: true,
   one_time_keyboard: true,
   is_persistent: false,
-  input_field_placeholder: "Ketik 500k gaji atau 20k bensin",
+  input_field_placeholder: "Contoh: bensin 20k atau gaji 500k",
 };
 
 export const BOT_COMMANDS = [
-  { command: "start", description: "Mulai bot dan lihat contoh format" },
+  { command: "start", description: "Mulai bot dan lihat bantuan" },
   { command: "pemasukan", description: "Input pemasukan natural" },
   { command: "pengeluaran", description: "Input pengeluaran natural" },
   { command: "saldo", description: "Cek saldo saat ini" },
@@ -118,7 +118,7 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
   if (normalizedText === "/batal") {
     await clearChatSessionMode(database, chatId);
     await clearChatSessionPendingAction(database, chatId);
-    await sendTelegramMessage(token, chatId, "Mode input dibatalkan.", { replyMarkup: mainKeyboard });
+    await sendTelegramMessage(token, chatId, "Dibatalkan.", { replyMarkup: mainKeyboard });
     return { handled: true, kind: "cancel" };
   }
 
@@ -360,12 +360,12 @@ async function handlePendingResetAction(database, token, chatId, text) {
       token,
       chatId,
       [
-        "Konfirmasi reset belum cocok.",
+        "Konfirmasi belum cocok.",
         "",
-        "Ketik persis:",
+        "Balas persis:",
         "YA RESET",
         "",
-        "Atau ketik /batal untuk membatalkan.",
+        "Atau ketik /batal.",
       ].join("\n"),
       { replyMarkup: mainKeyboard },
     );
@@ -380,10 +380,9 @@ async function handlePendingResetAction(database, token, chatId, text) {
   const reply =
     result.deletedCount > 0
       ? [
-          "Semua transaksi berhasil direset.",
-          "",
-          `Jumlah yang dihapus: ${result.deletedCount}`,
-          `Saldo sekarang: ${formatRupiah(summary.balance)}`,
+          "Data transaksi direset.",
+          `Dihapus: ${result.deletedCount}`,
+          `Saldo: ${formatRupiah(summary.balance)}`,
         ].join("\n")
       : "Tidak ada transaksi yang perlu direset.";
 
@@ -403,12 +402,12 @@ async function handlePendingBudgetResetAction(database, token, chatId, text) {
       token,
       chatId,
       [
-        "Konfirmasi reset budget belum cocok.",
+        "Konfirmasi belum cocok.",
         "",
-        "Ketik persis:",
+        "Balas persis:",
         "YA RESET BUDGET",
         "",
-        "Atau ketik /batal untuk membatalkan.",
+        "Atau ketik /batal.",
       ].join("\n"),
       { replyMarkup: mainKeyboard },
     );
@@ -422,9 +421,8 @@ async function handlePendingBudgetResetAction(database, token, chatId, text) {
   const reply =
     result.deletedCount > 0
       ? [
-          "Semua budget berhasil direset.",
-          "",
-          `Jumlah yang dihapus: ${result.deletedCount}`,
+          "Budget direset.",
+          `Dihapus: ${result.deletedCount}`,
         ].join("\n")
       : "Tidak ada budget yang perlu direset.";
 
@@ -453,12 +451,12 @@ async function handlePendingTransactionClarification(database, token, chatId, te
       token,
       chatId,
       [
-        "Pilih salah satu:",
+        "Balas:",
         "1. Pengeluaran",
         "2. Pemasukan",
         "3. Bukan transaksi",
         "",
-        "Ketik /batal untuk membatalkan.",
+        "Ketik /batal untuk batal.",
       ].join("\n"),
       { replyMarkup: mainKeyboard },
     );
@@ -487,7 +485,7 @@ async function handlePendingTransactionClarification(database, token, chatId, te
       await sendTelegramMessage(
         token,
         chatId,
-        "Klarifikasi belum valid. Kirim ulang transaksi dengan nominal dan catatan yang jelas.",
+        "Klarifikasi belum valid. Kirim ulang nominal dan catatan.",
         { replyMarkup: mainKeyboard },
       );
 
@@ -506,9 +504,8 @@ async function handlePendingTransactionClarification(database, token, chatId, te
     token,
     chatId,
     [
-      `Klarifikasi dipakai: ${label}.`,
-      "",
-      saved.length === 1 ? "Tersimpan: 1 transaksi" : `Tersimpan: ${saved.length} transaksi`,
+      `Dicatat sebagai ${label}.`,
+      saved.length === 1 ? "Tercatat: 1 transaksi" : `Tercatat: ${saved.length} transaksi`,
       `Saldo: ${formatRupiah(summary.balance)}`,
     ].join("\n"),
     { replyMarkup: mainKeyboard },
@@ -541,7 +538,7 @@ async function handlePendingWalletSelection(database, token, chatId, text, sessi
     await sendTelegramMessage(
       token,
       chatId,
-      ["Balas dengan nama dompet yang tersedia atau `tanpa dompet`.", "", ...wallets.map((wallet) => `- ${wallet}`), "/batal"].join("\n"),
+      ["Pilih dompet atau ketik: tanpa dompet", "", ...wallets.map((wallet) => `- ${wallet}`), "/batal"].join("\n"),
       { replyMarkup: mainKeyboard },
     );
     return { ok: false, kind: "wallet_selection_pending" };
@@ -560,9 +557,8 @@ async function handlePendingWalletSelection(database, token, chatId, text, sessi
   const summary = await getSummary(database);
   await clearChatSessionPendingAction(database, chatId);
   await sendTelegramMessage(token, chatId, [
-    `Pengeluaran dicatat${walletChoice ? ` dari dompet ${walletChoice}` : " tanpa dompet"}.`,
-    "",
-    "Tersimpan: 1 transaksi",
+    `Pengeluaran tercatat${walletChoice ? ` dari ${walletChoice}` : " tanpa dompet"}.`,
+    "Tercatat: 1 transaksi",
     `Saldo: ${formatSimpleRupiah(summary.balance)}`,
   ].join("\n"), { replyMarkup: mainKeyboard });
 
@@ -636,13 +632,10 @@ function buildStartReply() {
   return [
     "Keuangan Telegram siap.",
     "",
-    "Pakai tombol cepat di bawah chat atau menu command Telegram.",
+    "Kirim transaksi dengan bahasa natural.",
+    "Contoh: bensin 20k pakai cash",
     "",
-    "Alur utama:",
-    "Kirim pesan natural seperti: bensin 20k pakai cash",
-    "Kalau ambigu, bot akan memberi pilihan 1/2/3.",
-    "",
-    "Command ringkas:",
+    "Command cepat:",
     "saldo",
     "hari ini",
     "riwayat",
@@ -651,11 +644,7 @@ function buildStartReply() {
 }
 
 function buildStopReply() {
-  return [
-    "Keyboard cepat disembunyikan.",
-    "",
-    "Bot tetap bisa dipakai lewat menu command atau pesan manual.",
-  ].join("\n");
+  return "Keyboard cepat disembunyikan. Bot tetap aktif.";
 }
 
 function buildInputModePrompt(mode) {
@@ -663,42 +652,40 @@ function buildInputModePrompt(mode) {
   const example = mode === "income" ? "500k gaji" : "20k bensin";
   return [
     `Mode ${label} aktif.`,
-    "",
-    "Kirim nominal dan catatan dalam bahasa natural.",
     `Contoh: ${example}`,
-    "Ketik /batal untuk membatalkan.",
+    "Ketik /batal untuk batal.",
   ].join("\n");
 }
 
 function buildAskPrompt() {
   return [
-    "Ketik pertanyaan setelah /tanya.",
+    "Tanya data keuangan dengan /tanya.",
     "",
     "Contoh:",
     "/tanya bulan ini boros di mana?",
-    "/tanya berapa total bensin bulan ini?",
+    "/tanya total bensin bulan ini berapa?",
   ].join("\n");
 }
 
 function buildResetPrompt() {
   return [
-    "Kamu akan menghapus semua transaksi.",
+    "Reset akan menghapus semua transaksi.",
     "",
-    "Untuk lanjut, ketik persis:",
+    "Balas persis:",
     "YA RESET",
     "",
-    "Ketik /batal kalau berubah pikiran.",
+    "Ketik /batal untuk batal.",
   ].join("\n");
 }
 
 function buildBudgetResetPrompt() {
   return [
-    "Kamu akan menghapus semua budget.",
+    "Reset akan menghapus semua budget.",
     "",
-    "Untuk lanjut, ketik persis:",
+    "Balas persis:",
     "YA RESET BUDGET",
     "",
-    "Ketik /batal kalau berubah pikiran.",
+    "Ketik /batal untuk batal.",
   ].join("\n");
 }
 

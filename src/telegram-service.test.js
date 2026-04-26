@@ -86,7 +86,7 @@ describe("telegram service", () => {
     });
 
     assert.equal((await getChatSession(database, 123456789)).pendingInputMode, null);
-    assert.match(readJsonBody(replies.at(-1)).text, /Tersimpan: 1 transaksi/);
+    assert.match(readJsonBody(replies.at(-1)).text, /Tercatat: 1 transaksi/);
   });
 
   it("keeps unsigned note-first and wallet-oriented input working in mode flow", async () => {
@@ -123,7 +123,7 @@ describe("telegram service", () => {
       allowedChatIds,
     });
 
-    assert.match(readJsonBody(replies.at(-1)).text, /Tersimpan: 1 transaksi/);
+    assert.match(readJsonBody(replies.at(-1)).text, /Tercatat: 1 transaksi/);
     assert.equal((await getChatSession(database, 123456789)).pendingInputMode, null);
   });
 
@@ -157,7 +157,7 @@ describe("telegram service", () => {
     });
 
     assert.equal((await getChatSession(database, 123456789)).pendingAction, null);
-    assert.match(readJsonBody(replies.at(-1)).text, /budget berhasil direset/i);
+    assert.match(readJsonBody(replies.at(-1)).text, /Budget direset/i);
   });
 
   it("blocks chats outside the allowed list", async () => {
@@ -245,7 +245,7 @@ describe("telegram service", () => {
 
     assert.equal((await listTransactions(database)).length, 0);
     assert.equal((await getChatSession(database, 123456789)).pendingAction, null);
-    assert.match(readJsonBody(replies.at(-1)).text, /berhasil direset/i);
+    assert.match(readJsonBody(replies.at(-1)).text, /Data transaksi direset/i);
   });
 
   it("saves pending ambiguous AI transactions after type clarification", async () => {
@@ -282,6 +282,6 @@ describe("telegram service", () => {
     assert.equal(transactions[0].type, "expense");
     assert.equal(transactions[0].amount, 50000);
     assert.equal(session.pendingAction, null);
-    assert.match(readJsonBody(replies.at(-1)).text, /Klarifikasi dipakai: pengeluaran/);
+    assert.match(readJsonBody(replies.at(-1)).text, /Dicatat sebagai pengeluaran/);
   });
 });

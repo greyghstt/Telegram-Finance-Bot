@@ -48,7 +48,7 @@ describe("message handler", () => {
     assert.equal(routeCalls, 1);
     assert.equal(result.saved.length, 1);
     assert.equal(result.summary.balance, -20000);
-    assert.match(result.reply, /Tersimpan: 1 transaksi/);
+    assert.match(result.reply, /Tercatat: 1 transaksi/);
     assert.match(result.reply, /WIB/);
   });
 
@@ -211,7 +211,7 @@ describe("message handler", () => {
     assert.equal(result.kind, "clarification");
     assert.equal(result.command, "wallet_action_clarify");
     assert.match(result.reply, /1\. Set saldo dompet/);
-    assert.match(result.reply, /2\. Catat sebagai pemasukan/);
+    assert.match(result.reply, /2\. Catat pemasukan/);
     assert.match(result.reply, /3\. Batal/);
   });
 
@@ -227,8 +227,8 @@ describe("message handler", () => {
     });
 
     assert.equal(result.ok, false);
-    assert.match(result.reply, /1\. Catat sebagai pengeluaran/);
-    assert.match(result.reply, /2\. Catat sebagai pemasukan/);
+    assert.match(result.reply, /1\. Catat pengeluaran/);
+    assert.match(result.reply, /2\. Catat pemasukan/);
     assert.match(result.reply, /3\. Bukan transaksi/);
     assert.equal(routeCalls, 1);
   });
@@ -245,8 +245,8 @@ describe("message handler", () => {
     });
 
     assert.equal(result.ok, false);
-    assert.match(result.reply, /1\. Catat sebagai pengeluaran/);
-    assert.match(result.reply, /2\. Catat sebagai pemasukan/);
+    assert.match(result.reply, /1\. Catat pengeluaran/);
+    assert.match(result.reply, /2\. Catat pemasukan/);
     assert.match(result.reply, /3\. Bukan transaksi/);
     assert.equal(routeCalls, 1);
   });
@@ -296,8 +296,8 @@ describe("message handler", () => {
     const result = await handleMessage(database, "saldo bank 70000");
 
     assert.equal(result.ok, false);
-    assert.match(result.reply, /1\. Catat sebagai pengeluaran/);
-    assert.match(result.reply, /2\. Catat sebagai pemasukan/);
+    assert.match(result.reply, /1\. Catat pengeluaran/);
+    assert.match(result.reply, /2\. Catat pemasukan/);
     assert.match(result.reply, /3\. Bukan transaksi/);
   });
 
@@ -358,8 +358,8 @@ describe("message handler", () => {
 
     assert.equal(result.ok, false);
     assert.equal(result.command, "delete_by_text");
-    assert.match(result.reply, /Hapus transaksi butuh ID/);
-    assert.match(result.reply, /cari bensin tadi/);
+    assert.match(result.reply, /Hapus transaksi perlu ID/);
+    assert.match(result.reply, /Cari dulu: bensin tadi/);
   });
 
   it("auto-saves clear AI extracted natural transactions after validation", async () => {
@@ -441,7 +441,7 @@ describe("message handler", () => {
     });
 
     assert.equal(result.ok, false);
-    assert.match(result.reply, /belum bisa memvalidasi/i);
+    assert.match(result.reply, /belum cukup jelas/i);
   });
 
   it("normalizes AI category suggestions to existing categories", async () => {
@@ -551,9 +551,9 @@ describe("message handler", () => {
     const history = await handleMessage(database, "riwayat");
 
     assert.equal(balance.summary.balance, 80000);
-    assert.match(balance.reply, /Saldo saat ini/);
+    assert.match(balance.reply, /Saldo/);
     assert.equal(history.transactions.length, 2);
-    assert.match(history.reply, /Riwayat transaksi terakhir/);
+    assert.match(history.reply, /Riwayat terakhir/);
     assert.match(history.reply, /WIB/);
   });
 
@@ -711,7 +711,7 @@ describe("message handler", () => {
 
     assert.equal(result.command, "insight");
     assert.match(result.reply, /Ringkasan keuangan/);
-    assert.match(result.reply, /Insight AI/);
+    assert.match(result.reply, /Insight/);
     assert.match(result.reply, /AI membaca 1 transaksi/);
   });
 
@@ -743,7 +743,7 @@ describe("message handler", () => {
     assert.equal(capturedData.matchingSummary.totalExpense, 20000);
     assert.match(result.reply, /Jawaban keuangan/);
     assert.match(result.reply, /Data cocok: bensin/);
-    assert.match(result.reply, /Jawaban AI/);
+    assert.match(result.reply, /Jawaban/);
     assert.match(result.reply, /Total bensin: 20000/);
     assert.doesNotMatch(result.reply, /\*\*/);
   });
@@ -909,7 +909,7 @@ describe("message handler", () => {
     assert.equal(deleted.command, "budget_delete");
     assert.match(deleted.reply, /Budget Makanan bulan ini dihapus/);
     assert.equal(reset.command, "budget_reset");
-    assert.match(reset.reply, /butuh konfirmasi/);
+    assert.match(reset.reply, /perlu konfirmasi/);
   });
 
   it("returns manual budget suggestion fallback", async () => {
@@ -948,7 +948,7 @@ describe("message handler", () => {
 
     assert.equal(result.command, "budget_suggestion");
     assert.match(result.reply, /Saran budget bulan ini/);
-    assert.match(result.reply, /Saran AI/);
+    assert.match(result.reply, /Saran/);
     assert.match(result.reply, /Food sudah tinggi/);
     assert.doesNotMatch(result.reply, /\*\*/);
   });
@@ -971,7 +971,7 @@ describe("message handler", () => {
     const result = await handleMessage(database, "reset data");
 
     assert.equal(result.command, "reset_data");
-    assert.match(result.reply, /butuh konfirmasi/i);
+    assert.match(result.reply, /perlu konfirmasi/i);
   });
 
   it("calculates Jakarta period boundaries", () => {
