@@ -99,7 +99,9 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
 
   const chatId = message.chat.id;
   if (!isChatAllowed(chatId, allowedChatIds, env)) {
-    await sendTelegramMessage(token, chatId, "Bot ini hanya untuk pemilik.", { replyMarkup: mainKeyboard });
+    if (chatId !== 0) {
+      await sendTelegramMessage(token, chatId, "Bot ini hanya untuk pemilik.", { replyMarkup: mainKeyboard });
+    }
     return { handled: true, kind: "blocked" };
   }
 
