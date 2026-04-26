@@ -932,9 +932,12 @@ async function buildBudgetResetInstructionResponse(database, options) {
 
   return {
     ok: true,
-    kind: "command",
+    kind: "clarification",
     command: "budget_reset",
     budgets,
+    pendingClarification: {
+      action: "budget_reset_confirm",
+    },
     reply: [
       "Reset budget perlu konfirmasi.",
       `Budget ${periodLabel(period)}: ${budgets.length}`,
@@ -2443,8 +2446,11 @@ async function buildExportResponse(database, options) {
 function buildResetInstructionResponse() {
   return {
     ok: true,
-    kind: "command",
+    kind: "clarification",
     command: "reset_data",
+    pendingClarification: {
+      action: "reset_confirm",
+    },
     reply: [
       "Reset data perlu konfirmasi.",
       "",
