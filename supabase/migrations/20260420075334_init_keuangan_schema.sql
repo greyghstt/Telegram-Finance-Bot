@@ -35,5 +35,7 @@ create table if not exists public.chat_sessions (
 create index if not exists idx_chat_sessions_chat_id
   on public.chat_sessions (chat_id);
 
+-- Enable RLS for security. This migration assumes service-role or table-owner access.
+-- Restricted roles (anon, authenticated) require explicit policies before use.
 alter table public.transactions enable row level security;
 alter table public.chat_sessions enable row level security;

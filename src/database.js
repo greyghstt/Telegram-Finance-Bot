@@ -541,7 +541,7 @@ export async function saveTransaction(database, transaction) {
       transaction.updatedAt ?? now,
     );
 
-  return getTransactionById(database, Number(result.lastInsertRowid));
+  return getTransactionById(database, Number(result.lastInsertRowid), transaction.chatId);
 }
 
 export async function saveTransactions(database, transactions) {
@@ -1962,6 +1962,7 @@ function buildPostgresPeriodWhere(sql, { from, to } = {}) {
   return sql``;
 }
 
+// includeLegacy=true hanya untuk akses admin/kompat lama: ikutkan baris legacy chat_id is null saat query by chat_id.
 function buildPostgresTransactionWhere(sql, { from, to, chatId = null, includeLegacy = false } = {}) {
   const conditions = [sql`deleted_at is null`];
 
@@ -2410,6 +2411,7 @@ function buildSqlitePeriodFilter({ from, to } = {}) {
   };
 }
 
+// includeLegacy=true hanya untuk akses admin/kompat lama: ikutkan baris legacy chat_id IS NULL saat query by chat_id.
 function buildSqliteTransactionWhere({ from, to, chatId = null, includeLegacy = false } = {}) {
   const clauses = ["deleted_at IS NULL"];
   const params = [];

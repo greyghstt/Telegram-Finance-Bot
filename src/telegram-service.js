@@ -556,7 +556,7 @@ async function handlePendingWalletSelection(database, token, chatId, text, sessi
 async function handlePendingWalletActionClarification(database, token, chatId, text, session) {
   const intent = session?.pendingPayload?.intent;
   const originalText = session?.pendingPayload?.originalText;
-  const normalized = String(text ?? "").trim().toLowerCase();
+  const choice = parseNumericChoice(text, 3);
 
   if (!intent || !intent.wallet) {
     await clearChatSessionPendingAction(database, chatId);
@@ -564,13 +564,13 @@ async function handlePendingWalletActionClarification(database, token, chatId, t
     return { ok: false, kind: "wallet_action_missing" };
   }
 
-  if (normalized === "3" || normalized === "batal" || normalized === "/batal") {
+  if (choice === "cancel") {
     await clearChatSessionPendingAction(database, chatId);
     await sendTelegramMessage(token, chatId, "Dibatalkan.", { replyMarkup: mainKeyboard });
     return { ok: true, kind: "wallet_action_cancelled" };
   }
 
-  if (normalized !== "1" && normalized !== "2") {
+  if (choice !== 1 && choice !== 2) {
     await sendTelegramMessage(
       token,
       chatId,
@@ -589,7 +589,7 @@ async function handlePendingWalletActionClarification(database, token, chatId, t
 
   await clearChatSessionPendingAction(database, chatId);
 
-  const result = normalized === "1"
+  const result = choice === 1
     ? await executeWalletBalanceClarification(database, chatId, intent)
     : await executeWalletIncomeClarification(database, chatId, intent);
 
@@ -598,7 +598,7 @@ async function handlePendingWalletActionClarification(database, token, chatId, t
   return {
     ok: true,
     kind: "wallet_action_executed",
-    choice: normalized === "1" ? "set_balance" : "income_transaction",
+    choice: choice === 1 ? "set_balance" : "income_transaction",
     result,
   };
 }
@@ -700,6 +700,8 @@ function buildClarifiedTransaction(candidate, type) {
   };
 }
 
+// TODO: Unify pending_payload structure with options/action for generic numeric choice handling
+// across transaction_clarify, wallet_select_clarify, wallet_action_clarify.
 function parseNumericChoice(text, maxChoice) {
   const normalized = String(text ?? "").trim().toLowerCase();
 

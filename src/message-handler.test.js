@@ -1175,4 +1175,35 @@ describe("message handler", () => {
     assert.equal(result.ok, false);
     assert.match(result.reply, /belum cukup jelas/i);
   });
+
+  it("preserves AI transaction metadata fields when valid", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "bensin 20k pakai gopay", {
+      chatId: 123,
+      routeFinancialIntent: async () => ({
+        ok: true,
+        intent: "transaction_create",
+        confidence: 0.9,
+        transactions: [
+          {
+            type: "expense",
+            amount: 20000,
+            note: "bensin",
+            category: "transport",
+            wallet: "cash",
+            paymentMethod: "gopay",
+            tags: ["transport", "fuel"],
+            confidence: 0.9,
+          },
+        ],
+      }),
+    });
+
+    assert.equal(result.ok, true);
+    const saved = await listTransactions(database, { chatId: 123 });
+    assert.equal(saved[0].paymentMethod, "gopay");
+    assert.deepEqual(saved[0].tags, ["transport", "fuel"]);
+  });
 });
+

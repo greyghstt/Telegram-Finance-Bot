@@ -48,11 +48,12 @@ describe("csv backup", () => {
     await saveTransactions(source, sampleTransactions());
     const exported = await exportTransactionsToCsv(source);
 
-    const dryRun = await importTransactionsFromCsv(await createTestDatabase(), exported.csv, { dryRun: true });
+    const dryRun = await importTransactionsFromCsv(await createTestDatabase(), exported.csv, { dryRun: true, chatId: 123 });
 
     assert.equal(dryRun.ok, true);
     assert.equal(dryRun.dryRun, true);
     assert.equal(dryRun.count, 2);
+    assert.equal(dryRun.chatId, 123);
   });
 
   it("imports csv transactions when apply is enabled", async () => {
@@ -74,5 +75,20 @@ describe("csv backup", () => {
 
     assert.equal(parsed.ok, false);
     assert.match(parsed.error, /Header CSV kurang/);
+  });
+
+  it("imports csv with chatId and scopes transactions correctly", async () => {
+    const database = await createTestDatabase();
+    const csv = [
+      "id,type,amount,note,category,payment_method,created_at_local,created_at",
+      '1,expense,20000,"bensin",transport,,"23 Apr 2026, 18.10 WIB",2026-04-23T11:10:00.000Z',
+    ].join("\n");
+
+    const result = await importTransactionsFromCsv(database, csv, { dryRun: false, chatId: 111 });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.count, 1);
+    assert.equal((await listTransactions(database, { chatId: 111 })).length, 1);
+    assert.equal((await listTransactions(database, { chatId: 222 })).length, 0);
   });
 });

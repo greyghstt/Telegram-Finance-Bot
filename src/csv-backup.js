@@ -105,6 +105,7 @@ export async function importTransactionsFromCsv(database, content, { dryRun = fa
       ok: true,
       dryRun: true,
       count: parsed.transactions.length,
+      chatId,
       transactions: parsed.transactions,
     };
   }

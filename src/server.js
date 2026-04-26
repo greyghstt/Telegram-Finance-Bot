@@ -43,7 +43,7 @@ function getQueryChatId(req) {
 }
 
 function getAdminChatId(req) {
-  return req.body?.chatId ?? req.query?.chatId ?? ADMIN_LOCAL_CHAT_ID;
+  return req.body?.chatId ?? req.body?.chat_id ?? req.query?.chatId ?? req.query?.chat_id ?? ADMIN_LOCAL_CHAT_ID;
 }
 
 app.use(express.json());
@@ -85,6 +85,7 @@ app.get("/database/status", requireAdmin, async (req, res) => {
   res.json(await getDatabaseStatus(database));
 });
 
+// Parser debug/manual simulation endpoint (does not invoke AI routing)
 app.post("/simulate", requireAdmin, (req, res) => {
   const message = req.body?.message;
   const result = parseInput(message);
@@ -103,6 +104,7 @@ app.post("/messages", requireAdmin, async (req, res) => {
   res.status(statusCode).json(result);
 });
 
+// Manual/debug parser endpoint (bypasses AI routing, writes with getAdminChatId)
 app.post("/transactions", requireAdmin, async (req, res) => {
   await ensureDatabaseReady();
   const message = req.body?.message;

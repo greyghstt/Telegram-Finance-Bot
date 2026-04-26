@@ -155,7 +155,7 @@ function buildFinancialIntentRouterMessages(data) {
         "Balas JSON valid saja tanpa Markdown.",
         "Format: {\"intent\":string,\"confidence\":0.0,\"transactions\":[],\"question\":string|null,\"category\":string|null,\"period\":string|null,\"amount\":number|null,\"wallet\":string|null,\"fromWallet\":string|null,\"toWallet\":string|null,\"note\":string|null,\"id\":number|null,\"dayOfMonth\":number|null,\"frequency\":string|null}",
         "Intent yang boleh: transaction_create, transaction_clarify, finance_question, report_request, budget_set, budget_check, wallet_create, wallet_transfer, wallet_balance_query, wallet_balance_set, wallet_balance_adjust, bill_create, recurring_create, search_transaction, edit_transaction, export_csv, help, delete_request, clarification_required, unknown_or_ambiguous.",
-        "Untuk transaction_create, isi transactions dengan maksimal 10 item: {type:'income|expense|unknown',amount:number,note:string,category:string,wallet:string|null,confidence:0.0}.",
+        "Untuk transaction_create, isi transactions dengan maksimal 10 item: {type:'income|expense|unknown',amount:number,note:string,category:string,wallet:string|null,paymentMethod:string|null,tags:string[],confidence:0.0}.",
         "Pilih category hanya dari allowedCategories; jika tidak jelas gunakan other.",
         "Jika tipe pemasukan/pengeluaran ambigu, gunakan transaction_clarify dan type unknown.",
         "Aksi hapus/edit/reset dan set saldo absolut tidak boleh dianggap aman dieksekusi otomatis; route sebagai delete_request atau wallet_balance_set saja.",

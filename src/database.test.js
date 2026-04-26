@@ -447,4 +447,28 @@ describe("database", () => {
     assert.equal(progress[0].spent, 10000);
     assert.equal(progress[0].percent, 10);
   });
+
+  it("excludes legacy NULL chat_id by default and includes with includeLegacy", async () => {
+    const database = await createTestDatabase();
+    await saveTransactions(database, [
+      transaction({ amount: 10000, note: "legacy", category: "food", chatId: null }),
+      transaction({ amount: 20000, note: "scoped", category: "food", chatId: 123 }),
+    ]);
+
+    const strict = await listTransactions(database, { chatId: 123 });
+    const withLegacy = await listTransactions(database, { chatId: 123, includeLegacy: true });
+
+    assert.equal(strict.length, 1);
+    assert.equal(strict[0].note, "scoped");
+    assert.equal(withLegacy.length, 2);
+  });
+
+  it("SQLite saveTransaction returns inserted row with chatId scope", async () => {
+    const database = await createTestDatabase();
+    const saved = await saveTransaction(database, transaction({ amount: 30000, note: "test", category: "other", chatId: 456 }));
+
+    assert.equal(saved.note, "test");
+    assert.equal(saved.amount, 30000);
+    assert.equal(saved.chatId, "456");
+  });
 });
