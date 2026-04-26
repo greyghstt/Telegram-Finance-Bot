@@ -186,26 +186,19 @@ supabase/migrations/
 
 ## Input Direction
 
-Current manual parser behavior still supports explicit signs for backward
-compatibility:
-
-- `+` for income
-- `-` for expense
-
-Examples:
+Preferred examples:
 
 ```text
--20k bensin
-+500k gaji
-1. -12k minimarket
-2. -20k bensin
-3. +100k refund
+beli bensin 20 ribu
+gaji freelance masuk 500k
+1. beli minimarket 12k
+2. bayar bensin 20k
+3. refund 100k masuk
 ```
 
 Target direction:
 
-- Telegram income/expense buttons should be the preferred explicit type choice.
-- Leading `+` and `-` should not be required in normal usage.
+- Telegram income/expense buttons should remain available for explicit type choice.
 - Natural Indonesian input should be accepted for simple transactions.
 - Wallet-oriented income phrases such as `topup gopay 100k` or
   `masuk ke bca 500k gaji` should stay on deterministic routing before AI.

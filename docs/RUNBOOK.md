@@ -191,7 +191,7 @@ supabase/migrations/20260423170000_add_wallets_recurring_and_bills.sql
 
 Check that:
 
-- `edit 12 -20k bensin` updates only transaction `#12`.
+- `edit 12 beli bensin 20k` updates only transaction `#12`.
 - `hapus terakhir` and `hapus 12` remove the row from normal reports without
   physically deleting it.
 - `undo` restores only the latest deleted transaction for the same chat.
@@ -234,7 +234,7 @@ Check that:
 - `saldo dompet bank` should return the tracked wallet balance only.
 - `set saldo dompet bank 70230` and `tambah saldo dompet bank 20k` should
   modify wallet tracking only and must not change the income/expense summary.
-- wallet-tagged transactions such as `-20k bensin dompet cash` affect wallet
+- wallet-tagged transactions such as `beli bensin 20k dompet cash` affect wallet
   balance and still count in the normal expense summary.
 - `transfer bca cash 50k`, `transfer dari bca ke cash 50k`, and
   `pindah 50k dari cash ke bca` change wallet balances only and do not add new

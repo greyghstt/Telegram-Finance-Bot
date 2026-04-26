@@ -18,8 +18,7 @@ The project is live:
 
 Main features:
 
-- Record transactions from Telegram income/expense input modes.
-- Leading `+` or `-` signs are still supported for quick manual input.
+- Record transactions from Telegram income/expense input modes or natural language.
 - Balance, daily, weekly, monthly, and yearly reports.
 - Transaction history with IDs and WIB timestamps.
 - Delete the latest transaction or delete by ID.
@@ -166,29 +165,22 @@ The recommended flow is to choose an input mode first:
 - `/pemasukan`, then send the amount and note.
 - `/pengeluaran`, then send the amount and note.
 
-Leading signs are still supported for quick manual input:
-
-- `+` for income.
-- `-` for expense.
-
-Examples with explicit signs:
+Natural input examples:
 
 ```text
--20k bensin
--12rb makan
--Rp35.000 bayar makan
-+500k gaji
-+masuk 1,5jt freelance
--makan ayam 27rb via qris kemarin #kantin
--Rp125.000 buku kategori education 16/04/2026
+beli bensin 20 ribu
+bayar makan 35rb via qris
+gaji freelance masuk 1,5jt ke bca
+makan ayam 27rb via qris kemarin #kantin
+Rp125.000 buku kategori education 16/04/2026
 ```
 
 Batch transactions:
 
 ```text
-1. -12k minimarket
-2. -20k bensin
-3. +100k refund
+1. beli minimarket 12k
+2. bayar bensin 20k
+3. refund 100k masuk
 ```
 
 Examples after selecting an input mode:
@@ -199,6 +191,8 @@ Examples after selecting an input mode:
 500k gaji
 makan ayam 27rb via qris kemarin #kantin
 ```
+
+If the message is ambiguous, the bot asks you to choose `/pemasukan` or `/pengeluaran` before saving.
 
 Supported amount examples:
 
@@ -286,7 +280,7 @@ hapus tagihan 3
 kategori baru kopi Kopi
 alias kategori ngopi = kopi
 koreksi kategori 12 food
-edit 12 -20k bensin
+edit 12 beli bensin 20k
 cari bensin
 hapus terakhir
 undo
@@ -409,8 +403,8 @@ topup gopay 100k
 isi saldo 150k ke dana
 saldo awal cash 200k
 masuk ke bca 500k gaji
--20k bensin dompet cash
-transaksi rutin tambah bulanan -500k kos kategori housing
+beli bensin 20k dompet cash
+transaksi rutin tambah bulanan 500k kos kategori housing
 transaksi rutin
 hapus rutin 2
 tagihan tambah wifi 250k tiap 15 kategori bills
@@ -430,7 +424,7 @@ Wallet-aware flow:
 - `set saldo dompet bank 70230` sets the tracked wallet balance only.
 - `tambah saldo dompet bank 20k` adjusts the tracked wallet balance only.
 - `masuk ke bca 500k gaji` saves income and tags wallet `bca`.
-- `-20k makan dompet cash` saves expense and reduces wallet `cash`.
+- `beli makan 20k dompet cash` saves expense and reduces wallet `cash`.
 - `transfer bank cash 50k` moves value between wallets only.
 - `default dompet bank` marks the fallback wallet for later expenses.
 - for expense text without an explicit wallet:
@@ -489,7 +483,7 @@ category, so future AI category suggestions can normalize similar input.
 Transaction correction:
 
 ```text
-edit 12 -20k bensin kategori transport
+edit 12 beli bensin 20k kategori transport
 hapus terakhir
 undo
 ```
@@ -603,23 +597,22 @@ Invoke-RestMethod `
 
 ## Next Development Direction
 
-The current phase is **category customization after AI-first input**.
+The current phase is **safe natural input with deterministic validation**.
 
 Goals:
 
-- Keep AI involved in natural input and category suggestions.
+- Prefer deterministic parsing for clear income, expense, wallet, transfer,
+  budget, and report intents.
+- Use AI only when rules cannot safely understand the message.
 - Let users add custom categories without letting AI create messy categories
   silently.
 - Store aliases and corrections per chat.
-- Keep `+` and `-` as backward-compatible shortcuts while input modes remain
-  the main flow.
 
 Recommended priority:
 
-1. Apply and verify the category storage migration before production deploy.
-2. Test custom category, alias, and correction commands from Telegram.
-3. Watch AI natural input quality after aliases are added.
-4. Add merge/rename category commands if category usage grows.
+1. Test natural input, wallet, transfer, budget, and deletion clarification from Telegram.
+2. Watch AI extraction quality for messages that deterministic parsing rejects.
+3. Add merge/rename category commands if category usage grows.
 
 ## License
 

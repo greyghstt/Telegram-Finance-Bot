@@ -152,9 +152,9 @@ async function handleMessageCore(database, message, options = {}) {
         "/pemasukan lalu kirim 500k gaji",
         "/pengeluaran lalu kirim 20k bensin",
         "",
-        "Tanda cepat tetap bisa:",
-        "-20k bensin",
-        "+500k gaji",
+        "Atau pakai natural input yang jelas:",
+        "beli bensin 20 ribu",
+        "gaji freelance masuk 1,5 juta",
       ].join("\n"),
     };
   }
@@ -225,6 +225,10 @@ export async function handleCommand(database, command, options = {}) {
 async function handleVariableCommand(database, command, options) {
   if (command.command === "delete_by_id") {
     return buildDeleteByIdResponse(database, command.id, options);
+  }
+
+  if (command.command === "delete_by_text") {
+    return buildDeleteByTextClarificationResponse(command.query);
   }
 
   if (command.command === "edit_by_id") {
@@ -1864,7 +1868,6 @@ function shouldTryNaturalTransaction(parsed, message, options) {
   }
 
   return parsed.error.includes("Tipe transaksi belum jelas")
-    || parsed.error.includes("diawali tanda")
     || parsed.error.includes("Format pesan belum dikenali");
 }
 
@@ -2001,8 +2004,8 @@ async function validateAiTransactionCandidates(database, candidates, original, o
           "AI belum bisa memvalidasi transaksi ini dengan aman.",
           "",
           "Coba pakai format manual, misalnya:",
-          "-20k bensin",
-          "+500k gaji",
+          "beli bensin 20 ribu",
+          "gaji freelance masuk 500k",
         ].join("\n"),
       };
     }
@@ -2446,6 +2449,24 @@ async function buildDeleteByIdResponse(database, id, options) {
   };
 }
 
+function buildDeleteByTextClarificationResponse(query) {
+  return {
+    ok: false,
+    kind: "error",
+    command: "delete_by_text",
+    reply: [
+      "Hapus transaksi butuh ID agar aman.",
+      "",
+      `Pencarian: ${query}`,
+      "",
+      "Langkah cepat:",
+      "1) kirim: cari bensin tadi",
+      "2) pilih ID dari hasil",
+      "3) kirim: hapus 123",
+    ].join("\n"),
+  };
+}
+
 async function buildUndoDeleteResponse(database, options) {
   const chatId = getChatId(options);
   const session = await measureDb(options, "getChatSession", () => getChatSession(database, chatId));
@@ -2502,7 +2523,7 @@ async function buildEditByIdResponse(database, command, options) {
       ok: false,
       kind: "error",
       command: "edit_by_id",
-      reply: "Format edit belum valid. Contoh: edit 12 -20k bensin kategori transport",
+      reply: "Format edit belum valid. Contoh: edit 12 beli bensin 20 ribu kategori transport",
     };
   }
 
@@ -2608,12 +2629,9 @@ function buildHelpResponse() {
       "/pemasukan lalu ketik 500k gaji",
       "/pengeluaran lalu ketik 20k bensin",
       "",
-      "Tanda tetap didukung:",
-      "-20k bensin",
-      "+500k gaji",
-      "",
-      "AI natural input:",
-      "tadi beli bensin 20 ribu",
+      "Natural input:",
+      "beli bensin 20 ribu",
+      "gaji freelance masuk 1,5 juta",
       "",
       "Command:",
       "saldo",
@@ -2642,14 +2660,14 @@ function buildHelpResponse() {
       "dompet",
       "transfer bca cash 50k",
       "transfer dari bca ke cash 50k",
-      "transaksi rutin tambah bulanan -500k kos kategori housing",
+      "transaksi rutin tambah bulanan 500k kos kategori housing",
       "transaksi rutin",
       "tagihan tambah wifi 250k tiap 15 kategori bills",
       "tagihan hari ini",
       "kategori baru kopi Kopi",
       "alias kategori ngopi = kopi",
       "koreksi kategori 12 food",
-      "edit 12 -20k bensin",
+      "edit 12 30k bensin",
       "cari bensin",
       "hapus terakhir",
       "undo",
@@ -2668,8 +2686,7 @@ function parseVariableCommand(message) {
     return { command: "wallet_default_set", wallet: walletDefaultMatch[1].trim() };
   }
 
-  const walletBalanceSetMatch = text.match(/^\/?(?:set saldo dompet|saldo dompet set)\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i)
-    ?? text.match(/^\/?saldo dompet\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i);
+  const walletBalanceSetMatch = text.match(/^\/?(?:set saldo dompet|saldo dompet set)\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i);
   if (walletBalanceSetMatch) {
     return {
       command: "wallet_balance_set",
@@ -2706,7 +2723,8 @@ function parseVariableCommand(message) {
 
   const transferMatch =
     text.match(/^\/?transfer\s+(?:dari\s+)?([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+)(?:\s+(.{2,80}))?$/i)
-    ?? text.match(/^\/?(?:pindah(?:kan)?|kirim(?:kan)?)\s+([^\s]+)\s+dari\s+([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})(?:\s+(.{2,80}))?$/i);
+    ?? text.match(/^\/?(?:pindah(?:kan)?|kirim(?:kan)?)\s+([^\s]+)\s+dari\s+([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})(?:\s+(.{2,80}))?$/i)
+    ?? text.match(/^\/?([a-zA-Z0-9_-]{2,32})\s+ke\s+([a-zA-Z0-9_-]{2,32})\s+([^\s]+(?:\s+(?:ribu|rebu|rb|r|k|juta|jt|mio|m))?)(?:\s+(.{2,80}))?$/i);
     
   const compactTransferMatch = /\bke\b/i.test(text)
     ? null
@@ -2728,6 +2746,16 @@ function parseVariableCommand(message) {
         fromWallet: transferMatch[2].trim(),
         toWallet: transferMatch[3].trim(),
         amountText: transferMatch[1].trim(),
+        note: transferMatch[4]?.trim() ?? "",
+      };
+    }
+
+    if (/^\/?transfer\b/i.test(text)) {
+      return {
+        command: "transfer_save",
+        fromWallet: transferMatch[1].trim(),
+        toWallet: transferMatch[2].trim(),
+        amountText: transferMatch[3].trim(),
         note: transferMatch[4]?.trim() ?? "",
       };
     }
@@ -2878,7 +2906,7 @@ function parseVariableCommand(message) {
     };
   }
 
-  const budgetSetMatch = text.match(/^\/?budget\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40})$/i);
+  const budgetSetMatch = text.match(/^\/?budget\s+([a-zA-Z0-9_-]{2,32})\s+(.{1,40}?)(?:\s+bulan\s+ini)?$/i);
   if (budgetSetMatch) {
     return {
       command: "budget_set",
@@ -2929,11 +2957,27 @@ function parseVariableCommand(message) {
     };
   }
 
+  const naturalQuestionMatch = text.match(/^(.{8,240})\s+(?:di mana|dimana|apa|berapa|kapan|kenapa|mengapa)\??$/i);
+  if (naturalQuestionMatch && /\b(?:bulan ini|minggu ini|hari ini|tahun ini|boros|paling banyak|terbanyak|budget)\b/i.test(text)) {
+    return {
+      command: "finance_question",
+      question: text.trim(),
+    };
+  }
+
   const deleteMatch = text.match(/^\/?(?:hapus|delete|remove)\s+(?:id\s*)?#?(\d+)$/i);
   if (deleteMatch) {
     return {
       command: "delete_by_id",
       id: Number(deleteMatch[1]),
+    };
+  }
+
+  const deleteTextMatch = text.match(/^\/?(?:hapus|delete|remove)\s+transaksi\s+(.{3,120})$/i);
+  if (deleteTextMatch) {
+    return {
+      command: "delete_by_text",
+      query: deleteTextMatch[1].trim(),
     };
   }
 

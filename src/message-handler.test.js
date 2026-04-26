@@ -201,10 +201,94 @@ describe("message handler", () => {
     assert.equal(extractCalls, 0);
   });
 
+  it("parses clear natural expense without sign using intent keywords", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "beli bensin 20 ribu pakai cash");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.kind, "transaction");
+    assert.equal(result.saved[0].type, "expense");
+    assert.equal(result.saved[0].amount, 20000);
+    assert.match(result.saved[0].note, /bensin/i);
+    assert.equal(result.saved[0].paymentMethod, "cash");
+  });
+
+  it("parses clear natural income without sign using intent keywords", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "gaji freelance masuk 1,5 juta ke bca");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.kind, "transaction");
+    assert.equal(result.saved[0].type, "income");
+    assert.equal(result.saved[0].amount, 1500000);
+    assert.match(result.saved[0].note, /gaji freelance/i);
+    assert.equal(result.saved[0].paymentMethod, "bank_transfer");
+  });
+
+  it("asks for explicit type when balance-style input is ambiguous", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "saldo bank 70000");
+
+    assert.equal(result.ok, false);
+    assert.match(result.reply, /Tipe transaksi belum jelas/);
+  });
+
+  it("parses natural transfer intent with wallet names and amount", async () => {
+    const database = await createTestDatabase();
+    await handleMessage(database, "dompet tambah bca");
+    await handleMessage(database, "dompet tambah cash");
+
+    const result = await handleMessage(database, "bca ke cash 50 ribu");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "transfer_save");
+    assert.equal(result.transfer.fromWallet, "bca");
+    assert.equal(result.transfer.toWallet, "cash");
+    assert.equal(result.transfer.amount, 50000);
+  });
+
+  it("routes natural finance question without tanya prefix", async () => {
+    const database = await createTestDatabase();
+    await handleMessage(database, "-20k bensin");
+    await handleMessage(database, "-35k makan");
+
+    const result = await handleMessage(database, "bulan ini boros di mana", {
+      answerFinanceQuestion: async () => ({ ok: true, content: "Paling banyak di transport." }),
+    });
+
+    assert.equal(result.command, "finance_question");
+    assert.match(result.reply, /Paling banyak di transport/);
+  });
+
+  it("routes budget set with natural phrasing", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "budget makan 700 ribu bulan ini");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.command, "budget_set");
+    assert.equal(result.budget.category, "makan");
+    assert.equal(result.budget.monthlyLimit, 700000);
+  });
+
+  it("asks for clarification when delete request uses description instead of ID", async () => {
+    const database = await createTestDatabase();
+
+    const result = await handleMessage(database, "hapus transaksi bensin tadi");
+
+    assert.equal(result.ok, false);
+    assert.equal(result.command, "delete_by_text");
+    assert.match(result.reply, /Hapus transaksi butuh ID/);
+    assert.match(result.reply, /cari bensin tadi/);
+  });
+
   it("auto-saves clear AI extracted natural transactions after validation", async () => {
     const database = await createTestDatabase();
 
-    const result = await handleMessage(database, "tadi beli bensin 20 ribu dan makan ayam 15 ribu", {
+    const result = await handleMessage(database, "bensin 20 ribu dan makan ayam 15 ribu tadi", {
       extractTransactionCandidates: async () => ({
         ok: true,
         candidates: [
@@ -234,14 +318,14 @@ describe("message handler", () => {
   it("asks for clarification instead of saving ambiguous AI extracted transactions", async () => {
     const database = await createTestDatabase();
 
-    const result = await handleMessage(database, "refund teman 50 ribu", {
+    const result = await handleMessage(database, "saldo bank 50 ribu", {
       extractTransactionCandidates: async () => ({
         ok: true,
         candidates: [
           {
             type: "unknown",
             amount: 50000,
-            note: "refund teman",
+            note: "saldo bank",
             category: "other",
             confidence: 0.9,
           },
@@ -256,7 +340,7 @@ describe("message handler", () => {
   it("rejects low-confidence AI extracted transactions", async () => {
     const database = await createTestDatabase();
 
-    const result = await handleMessage(database, "mungkin bayar sesuatu 20 ribu", {
+    const result = await handleMessage(database, "catatan sesuatu 20 ribu", {
       extractTransactionCandidates: async () => ({
         ok: true,
         candidates: [
@@ -277,14 +361,14 @@ describe("message handler", () => {
 
   it("normalizes AI category suggestions to existing categories", async () => {
     const examples = [
-      ["ayam geprek dekat kampus 20k", "makanan", "food"],
-      ["praktikum elektronika 50k", "praktikum", "education"],
-      ["oli motor 80k", "vehicle", "transport"],
-      ["bayar kos 700k", "rent", "housing"],
-      ["koleksi random 10k", "hobby", "other"],
+      ["catatan alpha 20k", "ayam geprek dekat kampus", "makanan", "food"],
+      ["catatan beta 50k", "praktikum elektronika", "praktikum", "education"],
+      ["catatan gamma 80k", "oli motor", "vehicle", "transport"],
+      ["catatan delta 700k", "bayar kos", "rent", "housing"],
+      ["catatan epsilon 10k", "koleksi random", "hobby", "other"],
     ];
 
-    for (const [message, suggestedCategory, expectedCategory] of examples) {
+    for (const [message, note, suggestedCategory, expectedCategory] of examples) {
       const database = await createTestDatabase();
       const result = await handleMessage(database, message, {
         extractTransactionCandidates: async () => ({
@@ -295,7 +379,7 @@ describe("message handler", () => {
             {
               type: "expense",
               amount: 20000,
-              note: message.replace(/\s+\d+k$/i, ""),
+              note,
               category: suggestedCategory,
               confidence: 0.9,
             },

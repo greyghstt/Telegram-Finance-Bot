@@ -96,8 +96,49 @@ describe("parseTransactionLine", () => {
     assert.equal(income.transaction.paymentMethod, "bank_transfer");
   });
 
-  it("asks for explicit type when direct input has no sign or mode", () => {
+  it("parses clear natural expense intent without sign", () => {
+    const result = parseTransactionLine("beli bensin 20 ribu pakai cash");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.transaction.type, "expense");
+    assert.equal(result.transaction.amount, 20000);
+    assert.equal(result.transaction.paymentMethod, "cash");
+    assert.match(result.transaction.note, /bensin/i);
+  });
+
+  it("parses clear natural income intent without sign", () => {
+    const result = parseTransactionLine("gaji freelance masuk 1,5 juta ke bca");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.transaction.type, "income");
+    assert.equal(result.transaction.amount, 1500000);
+    assert.equal(result.transaction.paymentMethod, "bank_transfer");
+    assert.match(result.transaction.note, /gaji freelance/i);
+  });
+
+  it("asks for explicit type when natural input is ambiguous", () => {
     const result = parseTransactionLine("20k bensin");
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /Tipe transaksi belum jelas/);
+  });
+
+  it("asks for explicit type when balance-style input is ambiguous", () => {
+    const result = parseTransactionLine("saldo bank 70000");
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /Tipe transaksi belum jelas/);
+  });
+
+  it("asks for explicit type when transfer-style input is ambiguous", () => {
+    const result = parseTransactionLine("bca ke cash 50 ribu");
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /Tipe transaksi belum jelas/);
+  });
+
+  it("asks for explicit type when delete request includes amount", () => {
+    const result = parseTransactionLine("hapus transaksi bensin tadi 20 ribu");
 
     assert.equal(result.ok, false);
     assert.match(result.error, /Tipe transaksi belum jelas/);

@@ -56,12 +56,12 @@ npm.cmd run test:local-chat
 The script simulates this chat flow:
 
 ```text
-+2jt gaji bca
--20k bensin
--makan ayam 27rb via qris #kantin
-1. -12k minimarket
-2. -8rb parkir
-3. +100k refund
+gaji masuk 2jt ke bca
+beli bensin 20k
+beli makan ayam 27rb via qris #kantin
+1. beli minimarket 12k
+2. bayar parkir 8rb
+3. refund 100k masuk
 saldo
 riwayat
 kategori
@@ -91,7 +91,7 @@ isi saldo 150k ke dana
 saldo awal cash 200k
 masuk ke bca 500k gaji
 dompet
-transaksi rutin tambah bulanan -500k kos kategori housing
+transaksi rutin tambah bulanan 500k kos kategori housing
 transaksi rutin
 tagihan tambah wifi 250k tiap 15 kategori bills
 tagihan hari ini
@@ -102,14 +102,12 @@ kategori baru kopi Kopi
 alias kategori ngopi = kopi
 koreksi kategori 3 kopi
 undo
-edit 3 -30k makan ayam
+edit 3 beli makan ayam 30k
 help
 ```
 
-The current local scenario still covers explicit `+` and `-` input for
-backward compatibility. The target input direction is to make signs optional
-when the user has selected `/pemasukan` or `/pengeluaran`. The deterministic
-parser now also accepts note-first mode inputs such as `beli bensin 20k` and
+The current local scenario focuses on deterministic natural input. The parser
+also accepts input-mode messages after `/pemasukan` or `/pengeluaran`, and
 wallet-oriented income phrases such as `topup gopay 100k` before considering AI.
 
 It uses a temporary database:
@@ -143,7 +141,7 @@ Invoke-RestMethod `
   -Uri "http://localhost:3000/messages" `
   -Method Post `
   -ContentType "application/json" `
-  -Body '{"message":"-20k bensin"}'
+  -Body '{"message":"beli bensin 20k"}'
 ```
 
 ### Balance
@@ -304,7 +302,7 @@ Invoke-RestMethod `
 
 Expected behavior:
 
-- wallet-tagged transactions such as `-20k bensin dompet cash` change wallet
+- wallet-tagged transactions such as `beli bensin 20k dompet cash` change wallet
   balances and still count as normal expenses
 - transfers move value between wallets only and do not change balance summary
 - `transfer dari bca ke cash 50k` and `pindah 30k dari cash ke bca` resolve to

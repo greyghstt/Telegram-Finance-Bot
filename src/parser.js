@@ -229,8 +229,28 @@ const MONTHS = new Map([
 const AMOUNT_PATTERN =
   /(?:^|\s)([+-]?)\s*(?:rp\.?\s*)?(\d+(?:[.,]\d{3})*(?:[.,]\d+)?|\d+)\s*(?:(ribu|rebu|rb|r|k|juta|jt|mio|m)\b)?(?:\s*,-)?/i;
 
+const EXPENSE_INTENT_KEYWORDS = [
+  "beli",
+  "bayar",
+  "belanja",
+  "buat",
+  "pakai",
+  "pake",
+];
+
+const INCOME_INTENT_KEYWORDS = [
+  "gaji",
+  "bonus",
+  "freelance",
+  "fee",
+  "refund",
+  "cashback",
+  "terima",
+  "masuk",
+];
+
 const REQUIRED_SIGN_MESSAGE =
-  "Tipe transaksi belum jelas. Pilih /pemasukan atau /pengeluaran, atau pakai tanda cepat + / -.";
+  "Tipe transaksi belum jelas. Pilih /pemasukan atau /pengeluaran.";
 
 export function parseInput(input, options = {}) {
   const message = normalizeWhitespace(input);
@@ -295,14 +315,9 @@ export function parseTransactionLine(input, options = {}) {
   }
 
   const signMatch = normalized.match(/^([+-])\s*/);
-  if (!signMatch && !isValidDefaultType(options.defaultType)) {
-    return errorResult(REQUIRED_SIGN_MESSAGE, original);
-  }
-
-  const transactionSign = signMatch?.[1] ?? (options.defaultType === "income" ? "+" : "-");
   const content = signMatch ? normalized.slice(signMatch[0].length).trim() : normalized;
   if (!content) {
-    return errorResult("Setelah tanda + atau - harus ada nominal dan catatan.", original);
+    return errorResult("Tulis nominal dan catatan transaksi.", original);
   }
 
   const amountMatch = content.match(AMOUNT_PATTERN);
@@ -324,7 +339,16 @@ export function parseTransactionLine(input, options = {}) {
   const combinedNote = [beforeAmount, afterAmount].filter(Boolean).join(" ");
   const metadata = extractMetadata(combinedNote);
   const note = cleanNote(metadata.note);
-  const type = detectTransactionType(transactionSign);
+  const type = detectTransactionType({
+    sign: signMatch?.[1],
+    defaultType: options.defaultType,
+    text: combinedNote,
+  });
+
+  if (!type) {
+    return errorResult(REQUIRED_SIGN_MESSAGE, original);
+  }
+
   const category = metadata.category ?? detectCategory(note, type);
 
   return {
@@ -501,12 +525,32 @@ function removeDateText(note, dateText) {
   return normalizeWhitespace(note.replace(new RegExp(`\\b${escapeRegExp(dateText)}\\b`, "i"), " "));
 }
 
-function detectTransactionType(sign) {
+function detectTransactionType({ sign, defaultType, text }) {
   if (sign === "+") {
     return "income";
   }
 
-  return "expense";
+  if (sign === "-") {
+    return "expense";
+  }
+
+  if (isValidDefaultType(defaultType)) {
+    return defaultType;
+  }
+
+  const lowerText = String(text ?? "").toLowerCase();
+  const hasIncomeIntent = containsKeyword(lowerText, INCOME_INTENT_KEYWORDS);
+  const hasExpenseIntent = containsKeyword(lowerText, EXPENSE_INTENT_KEYWORDS);
+
+  if (hasIncomeIntent && !hasExpenseIntent) {
+    return "income";
+  }
+
+  if (hasExpenseIntent && !hasIncomeIntent) {
+    return "expense";
+  }
+
+  return null;
 }
 
 function extractExplicitWallet(note) {
