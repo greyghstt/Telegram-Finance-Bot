@@ -102,6 +102,16 @@ describe("parseTransactionLine", () => {
     assert.match(result.error, /Tipe transaksi belum jelas/);
   });
 
+  it("does not treat plus or minus prefixes as transaction type", () => {
+    const expense = parseTransactionLine("-20k bensin");
+    const income = parseTransactionLine("+500k gaji");
+
+    assert.equal(expense.ok, false);
+    assert.match(expense.error, /Tipe transaksi belum jelas|Nominal belum ditemukan/);
+    assert.equal(income.ok, false);
+    assert.match(income.error, /Tipe transaksi belum jelas|Nominal belum ditemukan/);
+  });
+
   it("parses unsigned transactions when default type is explicit", () => {
     const expense = parseTransactionLine("20k bensin", { defaultType: "expense" });
     const income = parseTransactionLine("500k gaji", { defaultType: "income" });

@@ -10,6 +10,7 @@ import {
 import {
   BOT_COMMANDS,
   normalizeTelegramCommand,
+  parseAllowedChatIds,
   processTelegramUpdate,
 } from "./telegram-service.js";
 
@@ -174,6 +175,40 @@ describe("telegram service", () => {
 
     assert.equal(result.kind, "blocked");
     assert.match(readJsonBody(replies.at(-1)).text, /hanya untuk pemilik/);
+  });
+
+  it("fails closed when production has no allowed chat ids", async () => {
+    const database = await createTestDatabase();
+    const replies = [];
+    mockTelegramFetch(replies);
+
+    const result = await processTelegramUpdate({
+      database,
+      update: textUpdate("saldo"),
+      token: "test-token",
+      allowedChatIds: parseAllowedChatIds(""),
+      env: { NODE_ENV: "production" },
+    });
+
+    assert.equal(result.kind, "blocked");
+    assert.match(readJsonBody(replies.at(-1)).text, /hanya untuk pemilik/);
+  });
+
+  it("allows empty chat allowlist outside production", async () => {
+    const database = await createTestDatabase();
+    const replies = [];
+    mockTelegramFetch(replies);
+
+    const result = await processTelegramUpdate({
+      database,
+      update: textUpdate("saldo"),
+      token: "test-token",
+      allowedChatIds: parseAllowedChatIds(""),
+      env: { NODE_ENV: "development" },
+    });
+
+    assert.equal(result.kind, "message");
+    assert.match(readJsonBody(replies.at(-1)).text, /Saldo/);
   });
 
   it("sends export as Telegram document", async () => {

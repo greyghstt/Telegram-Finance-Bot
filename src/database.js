@@ -62,6 +62,7 @@ export async function initializeDatabase(database) {
     await database.client`
       create table if not exists public.transactions (
         id bigint generated always as identity primary key,
+        chat_id text,
         type text not null check (type in ('income', 'expense')),
         amount integer not null check (amount > 0),
         note text not null,
@@ -79,6 +80,8 @@ export async function initializeDatabase(database) {
         updated_at timestamptz not null default now()
       )
     `;
+    await database.client`alter table public.transactions add column if not exists chat_id text`;
+    await database.client`create index if not exists idx_transactions_chat_id_created_at on public.transactions (chat_id, created_at desc)`;
     await database.client`create index if not exists idx_transactions_created_at on public.transactions (created_at desc)`;
     await database.client`create index if not exists idx_transactions_type_created_at on public.transactions (type, created_at desc)`;
     await database.client`create index if not exists idx_transactions_category_created_at on public.transactions (category, created_at desc)`;
@@ -242,6 +245,7 @@ export async function initializeDatabase(database) {
 
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT,
       type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
       amount INTEGER NOT NULL CHECK (amount > 0),
       note TEXT NOT NULL,
@@ -258,6 +262,9 @@ export async function initializeDatabase(database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE INDEX IF NOT EXISTS idx_transactions_chat_id_created_at
+      ON transactions (chat_id, created_at DESC);
 
     CREATE INDEX IF NOT EXISTS idx_transactions_created_at
       ON transactions (created_at DESC);
@@ -442,6 +449,14 @@ export async function initializeDatabase(database) {
     }
   }
 
+  try {
+    database.client.exec("ALTER TABLE transactions ADD COLUMN chat_id TEXT;");
+  } catch (error) {
+    if (!String(error.message).includes("duplicate column name")) {
+      throw error;
+    }
+  }
+
   migrateSqliteChatSessionsTable(database);
 }
 
@@ -451,6 +466,7 @@ export async function saveTransaction(database, transaction) {
   if (database.kind === "postgres") {
     const rows = await database.client`
       insert into public.transactions (
+        chat_id,
         type,
         amount,
         note,
@@ -466,6 +482,7 @@ export async function saveTransaction(database, transaction) {
         created_at,
         updated_at
       ) values (
+        ${transaction.chatId == null ? null : normalizeChatId(transaction.chatId)},
         ${transaction.type},
         ${transaction.amount},
         ${transaction.note},
@@ -489,6 +506,7 @@ export async function saveTransaction(database, transaction) {
   const result = database.client
     .prepare(
       `INSERT INTO transactions (
+        chat_id,
         type,
         amount,
         note,
@@ -503,9 +521,10 @@ export async function saveTransaction(database, transaction) {
         confidence,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
+      transaction.chatId == null ? null : normalizeChatId(transaction.chatId),
       transaction.type,
       transaction.amount,
       transaction.note,
@@ -583,31 +602,32 @@ export async function getDeletedTransactionById(database, id) {
   return row ? mapTransactionRow(row) : null;
 }
 
-export async function listTransactions(database, { limit = 20, offset = 0, from, to } = {}) {
+export async function listTransactions(database, { limit = 20, offset = 0, from, to, chatId = null } = {}) {
   const safeLimit = clampInteger(limit, 1, 100);
   const safeOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (database.kind === "postgres") {
-    return listPostgresTransactions(database, { limit: safeLimit, offset: safeOffset, from, to });
+    return listPostgresTransactions(database, { limit: safeLimit, offset: safeOffset, from, to, chatId: cleanChatId });
   }
 
-  const period = buildSqlitePeriodFilter({ from, to });
+  const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId });
   return database.client
     .prepare(
       `SELECT *
        FROM transactions
-       WHERE deleted_at IS NULL
-       ${period.where ? `AND ${period.where.slice(6)}` : ""}
+       ${where.where}
        ORDER BY id DESC
        LIMIT ?
        OFFSET ?`,
     )
-    .all(...period.params, safeLimit, safeOffset)
+    .all(...where.params, safeLimit, safeOffset)
     .map(mapTransactionRow);
 }
 
-export async function searchTransactions(database, query, { limit = 10 } = {}) {
+export async function searchTransactions(database, query, { limit = 10, chatId = null } = {}) {
   const safeLimit = clampInteger(limit, 1, 20);
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
   const keyword = String(query ?? "").trim();
 
   if (!keyword) {
@@ -621,6 +641,7 @@ export async function searchTransactions(database, query, { limit = 10 } = {}) {
       from public.transactions
       where
         deleted_at is null
+        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
         and (
           note ilike ${pattern}
           or category ilike ${pattern}
@@ -641,6 +662,7 @@ export async function searchTransactions(database, query, { limit = 10 } = {}) {
        FROM transactions
        WHERE
         deleted_at IS NULL
+        AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)
         AND (
           lower(note) LIKE ?
           OR lower(category) LIKE ?
@@ -651,13 +673,15 @@ export async function searchTransactions(database, query, { limit = 10 } = {}) {
        ORDER BY id DESC
        LIMIT ?`,
     )
-    .all(pattern, pattern, pattern, pattern, pattern, safeLimit)
+    .all(cleanChatId, cleanChatId, pattern, pattern, pattern, pattern, pattern, safeLimit)
     .map(mapTransactionRow);
 }
 
-export async function getSummary(database, { from, to } = {}) {
+export async function getSummary(database, { from, to, chatId = null } = {}) {
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
+
   if (database.kind === "postgres") {
-    const where = buildPostgresTransactionWhere(database.client, { from, to });
+    const where = buildPostgresTransactionWhere(database.client, { from, to, chatId: cleanChatId });
     const rows = await database.client`
       select
         coalesce(sum(case when type = 'income' then amount else 0 end), 0)::int as total_income,
@@ -669,7 +693,7 @@ export async function getSummary(database, { from, to } = {}) {
     return mapSummaryRow(rows[0]);
   }
 
-  const period = buildSqlitePeriodFilter({ from, to });
+  const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId });
   const row = database.client
     .prepare(
       `SELECT
@@ -677,19 +701,19 @@ export async function getSummary(database, { from, to } = {}) {
        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense,
        COUNT(*) AS transaction_count
        FROM transactions
-       WHERE deleted_at IS NULL
-       ${period.where ? `AND ${period.where.slice(6)}` : ""}`,
+       ${where.where}`,
     )
-    .get(...period.params);
+    .get(...where.params);
 
   return mapSummaryRow(row);
 }
 
-export async function getCategorySummary(database, { from, to, limit = 8 } = {}) {
+export async function getCategorySummary(database, { from, to, limit = 8, chatId = null } = {}) {
   const safeLimit = clampInteger(limit, 1, 20);
+  const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (database.kind === "postgres") {
-    const where = buildPostgresTransactionWhere(database.client, { from, to });
+    const where = buildPostgresTransactionWhere(database.client, { from, to, chatId: cleanChatId });
     const rows = await database.client`
       select
         category,
@@ -705,7 +729,7 @@ export async function getCategorySummary(database, { from, to, limit = 8 } = {})
     return rows.map(mapCategorySummaryRow);
   }
 
-  const period = buildSqlitePeriodFilter({ from, to });
+  const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId });
   return database.client
     .prepare(
       `SELECT
@@ -714,13 +738,12 @@ export async function getCategorySummary(database, { from, to, limit = 8 } = {})
        COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense,
        COUNT(*) AS transaction_count
        FROM transactions
-       WHERE deleted_at IS NULL
-       ${period.where ? `AND ${period.where.slice(6)}` : ""}
+       ${where.where}
        GROUP BY category
        ORDER BY total_expense DESC, total_income DESC
        LIMIT ?`,
     )
-    .all(...period.params, safeLimit)
+    .all(...where.params, safeLimit)
     .map(mapCategorySummaryRow);
 }
 
@@ -1092,10 +1115,11 @@ export async function listTransfers(database, chatId, { limit = 20 } = {}) {
 }
 
 export async function getWalletBalances(database, chatId) {
-  const wallets = await listWallets(database, chatId);
-  const transfers = await listTransfers(database, chatId, { limit: 1000 });
-  const transactions = await listTransactions(database, { limit: 1000 });
-  const balanceEntries = await listWalletBalanceEntries(database, chatId, { limit: 1000 });
+  const cleanChatId = normalizeChatId(chatId);
+  const wallets = await listWallets(database, cleanChatId);
+  const transfers = await listTransfers(database, cleanChatId, { limit: 1000 });
+  const transactions = await listTransactions(database, { limit: 1000, chatId: cleanChatId });
+  const balanceEntries = await listWalletBalanceEntries(database, cleanChatId, { limit: 1000 });
 
   return wallets.map((wallet) => {
     const transactionDelta = transactions
@@ -1789,40 +1813,11 @@ export async function clearChatSessionPendingAction(database, chatId) {
   return getChatSession(database, chatId);
 }
 
-function listPostgresTransactions(database, { limit, offset, from, to }) {
-  if (from && to) {
-    return database.client`
-      select * from public.transactions
-      where deleted_at is null and created_at >= ${from} and created_at < ${to}
-      order by id desc
-      limit ${limit}
-      offset ${offset}
-    `.then((rows) => rows.map(mapTransactionRow));
-  }
-
-  if (from) {
-    return database.client`
-      select * from public.transactions
-      where deleted_at is null and created_at >= ${from}
-      order by id desc
-      limit ${limit}
-      offset ${offset}
-    `.then((rows) => rows.map(mapTransactionRow));
-  }
-
-  if (to) {
-    return database.client`
-      select * from public.transactions
-      where deleted_at is null and created_at < ${to}
-      order by id desc
-      limit ${limit}
-      offset ${offset}
-    `.then((rows) => rows.map(mapTransactionRow));
-  }
-
+function listPostgresTransactions(database, { limit, offset, from, to, chatId }) {
+  const where = buildPostgresTransactionWhere(database.client, { from, to, chatId });
   return database.client`
     select * from public.transactions
-    where deleted_at is null
+    ${where}
     order by id desc
     limit ${limit}
     offset ${offset}
@@ -1845,20 +1840,22 @@ function buildPostgresPeriodWhere(sql, { from, to } = {}) {
   return sql``;
 }
 
-function buildPostgresTransactionWhere(sql, { from, to } = {}) {
-  if (from && to) {
-    return sql`where deleted_at is null and created_at >= ${from} and created_at < ${to}`;
+function buildPostgresTransactionWhere(sql, { from, to, chatId = null } = {}) {
+  const conditions = [sql`deleted_at is null`];
+
+  if (chatId != null) {
+    conditions.push(sql`(chat_id = ${chatId} or chat_id is null)`);
   }
 
   if (from) {
-    return sql`where deleted_at is null and created_at >= ${from}`;
+    conditions.push(sql`created_at >= ${from}`);
   }
 
   if (to) {
-    return sql`where deleted_at is null and created_at < ${to}`;
+    conditions.push(sql`created_at < ${to}`);
   }
 
-  return sql`where deleted_at is null`;
+  return sql`where ${sql(conditions, " and ")}`;
 }
 
 function migrateSqliteChatSessionsTable(database) {
@@ -2088,6 +2085,7 @@ function mapCategoryAliasRow(row) {
 function mapTransactionRow(row) {
   return {
     id: Number(row.id),
+    chatId: row.chat_id ?? null,
     type: row.type,
     amount: Number(row.amount),
     note: row.note,
@@ -2282,6 +2280,31 @@ function buildSqlitePeriodFilter({ from, to } = {}) {
 
   return {
     where: clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "",
+    params,
+  };
+}
+
+function buildSqliteTransactionWhere({ from, to, chatId = null } = {}) {
+  const clauses = ["deleted_at IS NULL"];
+  const params = [];
+
+  if (chatId != null) {
+    clauses.push("(chat_id = ? OR chat_id IS NULL)");
+    params.push(chatId);
+  }
+
+  if (from) {
+    clauses.push("created_at >= ?");
+    params.push(from);
+  }
+
+  if (to) {
+    clauses.push("created_at < ?");
+    params.push(to);
+  }
+
+  return {
+    where: `WHERE ${clauses.join(" AND ")}`,
     params,
   };
 }

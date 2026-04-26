@@ -80,14 +80,23 @@ export function normalizeTelegramCommand(text) {
   return canonical[command.toLowerCase()] ?? command;
 }
 
-export async function processTelegramUpdate({ database, update, token, allowedChatIds }) {
+export function parseAllowedChatIds(value) {
+  return new Set(
+    String(value ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+}
+
+export async function processTelegramUpdate({ database, update, token, allowedChatIds = new Set(), env = process.env }) {
   const message = update?.message;
   if (!message?.text) {
     return { handled: false };
   }
 
   const chatId = message.chat.id;
-  if (!allowedChatIds.has(String(chatId))) {
+  if (!isChatAllowed(chatId, allowedChatIds, env)) {
     await sendTelegramMessage(token, chatId, "Bot ini hanya untuk pemilik.", { replyMarkup: mainKeyboard });
     return { handled: true, kind: "blocked" };
   }
@@ -652,6 +661,20 @@ function formatRupiah(value) {
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(Number(value ?? 0));
+}
+
+function isChatAllowed(chatId, allowedChatIds, env) {
+  if (allowedChatIds.has(String(chatId))) {
+    return true;
+  }
+
+  return !isProductionEnv(env) && allowedChatIds.size === 0;
+}
+
+function isProductionEnv(env) {
+  return [env.NODE_ENV, env.VERCEL_ENV]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .some((value) => value === "production");
 }
 
 export function verifyWebhookSignature(body, signature, token) {

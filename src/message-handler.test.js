@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   initializeDatabase,
+  listBillReminders,
   listCategoryAliases,
   listCustomCategories,
+  listRecurringRules,
   listTransactions,
+  listWallets,
   openDatabase,
 } from "./database.js";
 import { getPeriodRange, handleMessage } from "./message-handler.js";
@@ -349,6 +352,54 @@ describe("message handler", () => {
     assert.equal(result.command, "budget_set");
     assert.equal(result.budget.category, "makan");
     assert.equal(result.budget.monthlyLimit, 700000);
+  });
+
+  it("routes AI report, budget check, search, export, and help intents", async () => {
+    const database = await createTestDatabase();
+    await saveAiTransaction(database, { type: "expense", amount: 20000, note: "bensin", category: "transport" });
+
+    const report = await handleMessage(database, "rekap minggu ini", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "report_request", confidence: 0.9, period: "week" }),
+    });
+    const budget = await handleMessage(database, "cek budget minggu ini", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "budget_check", confidence: 0.9, period: "weekly" }),
+    });
+    const search = await handleMessage(database, "cari bensin", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "search_transaction", confidence: 0.9, note: "bensin" }),
+    });
+    const exported = await handleMessage(database, "export csv", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "export_csv", confidence: 0.9 }),
+    });
+    const help = await handleMessage(database, "bantuan", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "help", confidence: 0.9 }),
+    });
+
+    assert.equal(report.command, "week_report");
+    assert.equal(budget.command, "budget_list");
+    assert.equal(search.command, "search");
+    assert.equal(exported.command, "export");
+    assert.equal(help.command, "help");
+  });
+
+  it("routes AI wallet, bill, and recurring creation intents", async () => {
+    const database = await createTestDatabase();
+
+    const wallet = await handleMessage(database, "buat dompet cash", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "wallet_create", confidence: 0.9, wallet: "cash" }),
+    });
+    const bill = await handleMessage(database, "tagihan wifi 250k tiap tanggal 15", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "bill_create", confidence: 0.9, note: "wifi", amount: 250000, dayOfMonth: 15, category: "bills" }),
+    });
+    const recurring = await handleMessage(database, "kos bulanan 500k", {
+      routeFinancialIntent: async () => ({ ok: true, intent: "recurring_create", confidence: 0.9, note: "kos", amount: 500000, frequency: "monthly", category: "housing" }),
+    });
+
+    assert.equal(wallet.command, "wallet_save");
+    assert.equal((await listWallets(database))[0].name, "cash");
+    assert.equal(bill.command, "bill_save");
+    assert.equal((await listBillReminders(database))[0].title, "wifi");
+    assert.equal(recurring.command, "recurring_save");
+    assert.match((await listRecurringRules(database))[0].templateMessage, /kos/);
   });
 
   it("asks for clarification when delete request uses description instead of ID", async () => {

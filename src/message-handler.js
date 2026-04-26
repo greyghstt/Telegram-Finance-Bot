@@ -48,7 +48,7 @@ import {
   generateFinanceInsight,
   generateMonthlyFinanceReview,
   generateWeeklyFinanceReport,
-} from "./ai-service.js";
+} from "./ai-router.js";
 import { parseAmount, parseInput } from "./parser.js";
 
 const JAKARTA_TIME_ZONE = "Asia/Jakarta";
@@ -461,7 +461,7 @@ function buildSavedReply(saved, summary) {
 }
 
 async function buildBalanceResponse(database, options) {
-  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { chatId: getChatId(options) }));
 
   return {
     ok: true,
@@ -481,11 +481,11 @@ async function buildBalanceResponse(database, options) {
 
 async function buildPeriodResponse(database, period, options) {
   const range = getPeriodRange(period, options.now);
-  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { ...range, chatId: getChatId(options) }));
   const categories = await measureDb(options, "getCategorySummary", () =>
-    getCategorySummary(database, { ...range, limit: 5 }));
+    getCategorySummary(database, { ...range, limit: 5, chatId: getChatId(options) }));
   const recent = await measureDb(options, "listTransactions", () =>
-    listTransactions(database, { ...range, limit: 5 }));
+    listTransactions(database, { ...range, limit: 5, chatId: getChatId(options) }));
   const label = periodLabel(period);
   const lines = [
     `Ringkasan ${label}`,
@@ -527,7 +527,7 @@ async function buildPeriodResponse(database, period, options) {
 
 async function buildHistoryResponse(database, options) {
   const transactions = await measureDb(options, "listTransactions", () =>
-    listTransactions(database, { limit: 10 }));
+    listTransactions(database, { limit: 10, chatId: getChatId(options) }));
   const lines = ["Riwayat terakhir"];
 
   if (transactions.length === 0) {
@@ -550,7 +550,7 @@ async function buildHistoryResponse(database, options) {
 
 async function buildCategoryReportResponse(database, options) {
   const categories = await measureDb(options, "getCategorySummary", () =>
-    getCategorySummary(database, { limit: 10 }));
+    getCategorySummary(database, { limit: 10, chatId: getChatId(options) }));
   const context = await buildCategoryContext(database, options);
   const lines = ["Laporan kategori"];
 
@@ -632,12 +632,21 @@ async function executeAiIntent(database, intent, originalMessage, options) {
       return handleAiTransactions(database, intent, originalMessage, options);
     case "finance_question":
       return buildFinanceQuestionResponse(database, String(intent.question || originalMessage).trim(), options);
+    case "report_request":
+      return executeAiReportIntent(database, intent, options);
+    case "budget_check":
+      return buildBudgetListResponse(database, { ...options, budgetPeriod: normalizeAiBudgetPeriod(intent.period) });
     case "budget_set":
       return buildBudgetSetResponse(database, {
         command: "budget_set",
         period: normalizeAiBudgetPeriod(intent.period),
         category: normalizeCategorySlug(intent.category || "global") || "global",
         amountText: String(intent.amount ?? ""),
+      }, options);
+    case "wallet_create":
+      return buildWalletSaveResponse(database, {
+        command: "wallet_save",
+        wallet: normalizeWalletNameLocal(intent.wallet || intent.note),
       }, options);
     case "wallet_transfer":
       return buildTransferSaveResponse(database, {
@@ -658,8 +667,37 @@ async function executeAiIntent(database, intent, originalMessage, options) {
         amount: Number(intent.amount),
         note: String(intent.note ?? "").trim() || null,
       }, options);
+    case "bill_create":
+      return buildBillSaveResponse(database, {
+        command: "bill_save",
+        title: String(intent.note || intent.category || "tagihan").trim(),
+        amountText: String(intent.amount ?? ""),
+        dueDay: normalizeAiDayOfMonth(intent.dayOfMonth),
+        category: normalizeCategorySlug(intent.category || "bills") || "bills",
+      }, options);
+    case "recurring_create":
+      return buildRecurringSaveResponse(database, {
+        command: "recurring_save",
+        cadence: normalizeAiFrequency(intent.frequency),
+        templateMessage: buildAiRecurringTemplate(intent, originalMessage),
+      }, options);
+    case "search_transaction":
+      return buildSearchResponse(database, String(intent.note || intent.question || originalMessage).trim(), options);
+    case "edit_transaction":
+      return buildEditByIdResponse(database, {
+        command: "edit_by_id",
+        id: Number(intent.id),
+        amountText: intent.amount == null ? null : String(intent.amount),
+        note: String(intent.note ?? "").trim() || null,
+      }, options);
+    case "export_csv":
+      return buildExportResponse(database, options);
+    case "help":
+      return buildHelpResponse();
     case "delete_request":
       return buildDeleteByTextClarificationResponse(String(intent.note || originalMessage).trim());
+    case "clarification_required":
+      return buildAiFirstFallbackResponse({ ok: false, error: "Perintah masih perlu diperjelas." }, originalMessage);
     default:
       return null;
   }
@@ -702,7 +740,7 @@ async function saveValidatedTransactions(database, transactions, kind, options, 
 
   const saved = await measureDb(options, "saveTransactions", () =>
     saveTransactions(database, walletResolution.transactions));
-  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { chatId: getChatId(options) }));
   const reply = extras.prefix
     ? [extras.prefix, "", buildSavedReply(saved, summary)].join("\n")
     : buildSavedReply(saved, summary);
@@ -731,20 +769,60 @@ function normalizeAiBudgetPeriod(value) {
   return "monthly";
 }
 
+async function executeAiReportIntent(database, intent, options) {
+  const period = String(intent.period ?? "").toLowerCase();
+  if (["week", "weekly", "minggu"].includes(period)) {
+    return buildPeriodResponse(database, "week", options);
+  }
+  if (["month", "monthly", "bulan"].includes(period)) {
+    return buildPeriodResponse(database, "month", options);
+  }
+  if (["year", "yearly", "tahun"].includes(period)) {
+    return buildPeriodResponse(database, "year", options);
+  }
+  return buildPeriodResponse(database, "today", options);
+}
+
+function normalizeAiDayOfMonth(value) {
+  const day = Number(value);
+  return Number.isSafeInteger(day) && day >= 1 && day <= 31 ? day : null;
+}
+
+function normalizeAiFrequency(value) {
+  const frequency = String(value ?? "").toLowerCase();
+  if (["weekly", "mingguan", "week"].includes(frequency)) {
+    return "weekly";
+  }
+  if (["yearly", "tahunan", "year"].includes(frequency)) {
+    return "yearly";
+  }
+  return "monthly";
+}
+
+function buildAiRecurringTemplate(intent, originalMessage) {
+  const parts = [intent.amount, intent.note, intent.category ? `kategori ${intent.category}` : null]
+    .filter((part) => part != null && String(part).trim())
+    .map((part) => String(part).trim());
+  return parts.length > 0 ? parts.join(" ") : String(originalMessage ?? "").trim();
+}
+
 async function resolveWalletAwareTransactions(database, transactions, options) {
-  const wallets = await measureDb(options, "listWallets", () => listWallets(database, getChatId(options)));
-  const session = await measureDb(options, "getChatSession", () => getChatSession(database, getChatId(options)));
+  const chatId = getChatId(options);
+  const wallets = await measureDb(options, "listWallets", () => listWallets(database, chatId));
+  const session = await measureDb(options, "getChatSession", () => getChatSession(database, chatId));
   const namedWallets = wallets.map((wallet) => wallet.name);
   const resolved = [];
 
   for (const transaction of transactions) {
+    const base = { ...transaction, chatId };
+
     if (transaction.wallet) {
-      resolved.push(transaction);
+      resolved.push(base);
       continue;
     }
 
     if (transaction.type !== "expense") {
-      resolved.push(transaction);
+      resolved.push(base);
       continue;
     }
 
@@ -756,7 +834,7 @@ async function resolveWalletAwareTransactions(database, transactions, options) {
       return buildWalletSelectionClarificationResponse(namedWallets, transaction, options);
     }
 
-    resolved.push({ ...transaction, wallet: inferredWallet ?? null });
+    resolved.push({ ...base, wallet: inferredWallet ?? null });
   }
 
   return { ok: true, transactions: resolved };
@@ -1338,11 +1416,11 @@ async function buildBillDueResponse(database, options) {
 
 async function buildInsightData(database, options = {}) {
   const periodLabel = "semua waktu";
-  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { chatId: getChatId(options) }));
   const categories = await measureDb(options, "getCategorySummary", () =>
-    getCategorySummary(database, { limit: 5 }));
+    getCategorySummary(database, { limit: 5, chatId: getChatId(options) }));
   const recentTransactions = await measureDb(options, "listTransactions", () =>
-    listTransactions(database, { limit: 5 }));
+    listTransactions(database, { limit: 5, chatId: getChatId(options) }));
 
   return {
     periodLabel,
@@ -1362,13 +1440,14 @@ async function buildFinanceQuestionData(database, question, options) {
   const period = periodFromQuestion(question);
   const range = period ? getPeriodRange(period, options.now) : {};
   const periodLabel = period ? periodLabelForQuestion(period) : "semua waktu";
-  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const chatId = getChatId(options);
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { ...range, chatId }));
   const categories = await measureDb(options, "getCategorySummary", () =>
-    getCategorySummary(database, { ...range, limit: 8 }));
+    getCategorySummary(database, { ...range, limit: 8, chatId }));
   const recentTransactions = await measureDb(options, "listTransactions", () =>
-    listTransactions(database, { ...range, limit: 5 }));
+    listTransactions(database, { ...range, limit: 5, chatId }));
   const periodTransactions = await measureDb(options, "listTransactions", () =>
-    listTransactions(database, { ...range, limit: 100 }));
+    listTransactions(database, { ...range, limit: 100, chatId }));
   const matchedTerms = getFinanceQuestionTerms(question, categories);
   const matchingTransactions = filterTransactionsByTerms(periodTransactions, matchedTerms).slice(0, 10);
   const matchingSummary = summarizeTransactions(matchingTransactions);
@@ -1388,9 +1467,10 @@ async function buildFinanceQuestionData(database, question, options) {
 async function buildBudgetData(database, options) {
   const budgetPeriod = options.budgetPeriod ?? "monthly";
   const range = getBudgetRange(budgetPeriod, options.now);
-  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const chatId = getChatId(options);
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { ...range, chatId }));
   const budgets = await measureDb(options, "getBudgetProgress", () =>
-    getBudgetProgress(database, getChatId(options), { ...range, period: budgetPeriod }));
+    getBudgetProgress(database, chatId, { ...range, period: budgetPeriod }));
 
   return {
     periodLabel: periodLabel(budgetPeriod),
@@ -1403,15 +1483,16 @@ async function buildBudgetData(database, options) {
 
 async function buildPeriodicAiReportData(database, period, options) {
   const range = getPeriodRange(period, options.now);
-  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const chatId = getChatId(options);
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { ...range, chatId }));
   const categories = await measureDb(options, "getCategorySummary", () =>
-    getCategorySummary(database, { ...range, limit: 6 }));
+    getCategorySummary(database, { ...range, limit: 6, chatId }));
   const recentTransactions = await measureDb(options, "listTransactions", () =>
-    listTransactions(database, { ...range, limit: 6 }));
+    listTransactions(database, { ...range, limit: 6, chatId }));
   const wallets = await measureDb(options, "getWalletBalances", () =>
-    getWalletBalances(database, getChatId(options)));
+    getWalletBalances(database, chatId));
   const budgets = await measureDb(options, "getBudgetProgress", () =>
-    getBudgetProgress(database, getChatId(options), {
+    getBudgetProgress(database, chatId, {
       ...range,
       period: period === "week" ? "weekly" : "monthly",
     }));
@@ -1428,9 +1509,10 @@ async function buildPeriodicAiReportData(database, period, options) {
 
 async function buildAnomalyData(database, options) {
   const range = getPeriodRange("month", options.now);
-  const summary = await measureDb(options, "getSummary", () => getSummary(database, range));
+  const chatId = getChatId(options);
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { ...range, chatId }));
   const recentTransactions = await measureDb(options, "listTransactions", () =>
-    listTransactions(database, { ...range, limit: 40 }));
+    listTransactions(database, { ...range, limit: 40, chatId }));
 
   return {
     periodLabel: "30 hari terakhir",
@@ -2241,7 +2323,7 @@ async function buildDeleteLastResponse(database, options) {
     };
   }
 
-  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { chatId: getChatId(options) }));
   await rememberUndoDelete(database, deleted, options);
 
   return {
@@ -2274,7 +2356,7 @@ async function buildDeleteByIdResponse(database, id, options) {
     };
   }
 
-  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { chatId: getChatId(options) }));
   await rememberUndoDelete(database, deleted, options);
 
   return {
@@ -2338,7 +2420,7 @@ async function buildUndoDeleteResponse(database, options) {
 
   await measureDb(options, "clearChatSessionPendingAction", () =>
     clearChatSessionPendingAction(database, chatId));
-  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { chatId: getChatId(options) }));
 
   return {
     ok: true,
@@ -2382,7 +2464,7 @@ async function buildEditByIdResponse(database, command, options) {
     };
   }
 
-  const summary = await measureDb(options, "getSummary", () => getSummary(database));
+  const summary = await measureDb(options, "getSummary", () => getSummary(database, { chatId: getChatId(options) }));
 
   return {
     ok: true,
@@ -2402,7 +2484,7 @@ async function buildEditByIdResponse(database, command, options) {
 
 async function buildSearchResponse(database, query, options) {
   const transactions = await measureDb(options, "searchTransactions", () =>
-    searchTransactions(database, query, { limit: 10 }));
+    searchTransactions(database, query, { limit: 10, chatId: getChatId(options) }));
   const lines = [`Hasil pencarian: ${query}`];
 
   if (transactions.length === 0) {

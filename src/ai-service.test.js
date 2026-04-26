@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { isAiEnabled } from "./ai-service.js";
 import {
   answerFinanceQuestion,
   detectFinanceAnomalies,
@@ -8,8 +9,7 @@ import {
   generateFinanceInsight,
   generateMonthlyFinanceReview,
   generateWeeklyFinanceReport,
-  isAiEnabled,
-} from "./ai-service.js";
+} from "./ai-router.js";
 
 describe("ai service", () => {
   it("treats AI as disabled unless explicitly enabled", () => {

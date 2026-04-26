@@ -227,7 +227,7 @@ const MONTHS = new Map([
 ]);
 
 const AMOUNT_PATTERN =
-  /(?:^|\s)([+-]?)\s*(?:rp\.?\s*)?(\d+(?:[.,]\d{3})*(?:[.,]\d+)?|\d+)\s*(?:(ribu|rebu|rb|r|k|juta|jt|mio|m)\b)?(?:\s*,-)?/i;
+  /(?:^|\s)(?:rp\.?\s*)?(\d+(?:[.,]\d{3})*(?:[.,]\d+)?|\d+)\s*(?:(ribu|rebu|rb|r|k|juta|jt|mio|m)\b)?(?:\s*,-)?/i;
 
 const REQUIRED_SIGN_MESSAGE =
   "Tipe transaksi belum jelas. Pilih /pemasukan atau /pengeluaran.";
@@ -311,7 +311,7 @@ export function parseTransactionLine(input, options = {}) {
     );
   }
 
-  const amount = parseAmount(amountMatch[2], amountMatch[3]);
+  const amount = parseAmount(amountMatch[1], amountMatch[2]);
   if (!Number.isSafeInteger(amount) || amount <= 0) {
     return errorResult("Nominal harus lebih besar dari 0.", original);
   }
