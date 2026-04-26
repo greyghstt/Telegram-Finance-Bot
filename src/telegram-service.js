@@ -700,6 +700,21 @@ function buildClarifiedTransaction(candidate, type) {
   };
 }
 
+function parseNumericChoice(text, maxChoice) {
+  const normalized = String(text ?? "").trim().toLowerCase();
+
+  if (normalized === "batal" || normalized === "/batal") {
+    return "cancel";
+  }
+
+  const num = Number(normalized);
+  if (Number.isSafeInteger(num) && num >= 1 && num <= maxChoice) {
+    return num;
+  }
+
+  return null;
+}
+
 function parseClarifiedTransactionType(text) {
   const normalized = String(text ?? "").trim().toLowerCase();
 

@@ -83,7 +83,7 @@ export function parseTransactionsCsv(content) {
       category,
       paymentMethod: String(values.payment_method ?? "").trim() || null,
       rawAmount: String(values.amount ?? "").trim(),
-      original: `${type === "income" ? "+" : "-"}${amount} ${note}`,
+      original: `${amount} ${note}`,
       confidence: 1,
       createdAt,
       date: null,
@@ -94,7 +94,7 @@ export function parseTransactionsCsv(content) {
   return { ok: true, transactions };
 }
 
-export async function importTransactionsFromCsv(database, content, { dryRun = false } = {}) {
+export async function importTransactionsFromCsv(database, content, { dryRun = false, chatId = null } = {}) {
   const parsed = parseTransactionsCsv(content);
   if (!parsed.ok) {
     return parsed;
@@ -109,7 +109,10 @@ export async function importTransactionsFromCsv(database, content, { dryRun = fa
     };
   }
 
-  const saved = await saveTransactions(database, parsed.transactions);
+  const saved = await saveTransactions(
+    database,
+    parsed.transactions.map((transaction) => ({ ...transaction, chatId })),
+  );
   return {
     ok: true,
     dryRun: false,

@@ -36,8 +36,14 @@ async function ensureDatabaseReady() {
   await databaseReadyPromise;
 }
 
+const ADMIN_LOCAL_CHAT_ID = "admin-local";
+
 function getQueryChatId(req) {
   return req.query.chatId ?? req.query.chat_id ?? null;
+}
+
+function getAdminChatId(req) {
+  return req.body?.chatId ?? req.query?.chatId ?? ADMIN_LOCAL_CHAT_ID;
 }
 
 app.use(express.json());
@@ -89,7 +95,9 @@ app.post("/simulate", requireAdmin, (req, res) => {
 
 app.post("/messages", requireAdmin, async (req, res) => {
   await ensureDatabaseReady();
-  const result = await handleMessage(database, req.body?.message);
+  const result = await handleMessage(database, req.body?.message, {
+    chatId: getAdminChatId(req),
+  });
   const statusCode = result.ok ? 200 : 400;
 
   res.status(statusCode).json(result);
@@ -115,16 +123,20 @@ app.post("/transactions", requireAdmin, async (req, res) => {
     return;
   }
 
+  const chatId = getAdminChatId(req);
   const transactions =
     parsed.kind === "batch" ? parsed.transactions : [parsed.transaction];
-  const saved = await saveTransactions(database, transactions);
+  const saved = await saveTransactions(
+    database,
+    transactions.map((transaction) => ({ ...transaction, chatId })),
+  );
 
   res.status(201).json({
     ok: true,
     kind: parsed.kind,
     saved,
     count: saved.length,
-    summary: await getSummary(database, { chatId: getQueryChatId(req) }),
+    summary: await getSummary(database, { chatId }),
   });
 });
 
@@ -185,6 +197,7 @@ app.post("/import/csv", requireAdmin, async (req, res) => {
   await ensureDatabaseReady();
   const result = await importTransactionsFromCsv(database, req.body?.csv ?? "", {
     dryRun: req.body?.dryRun !== false,
+    chatId: getAdminChatId(req),
   });
   res.status(result.ok ? 200 : 400).json(result);
 });

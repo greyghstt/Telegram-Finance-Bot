@@ -570,54 +570,78 @@ export async function saveTransactions(database, transactions) {
   }
 }
 
-export async function getTransactionById(database, id, chatId = null) {
+export async function getTransactionById(database, id, chatId = null, { includeLegacy = false } = {}) {
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (database.kind === "postgres") {
+    const legacyCondition = includeLegacy && cleanChatId != null
+      ? database.client`(chat_id = ${cleanChatId} or chat_id is null)`
+      : cleanChatId != null
+        ? database.client`chat_id = ${cleanChatId}`
+        : database.client`true`;
+
     const rows = await database.client`
       select *
       from public.transactions
       where id = ${id} and deleted_at is null
-        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
+        and ${legacyCondition}
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
+  const chatCondition = cleanChatId != null
+    ? includeLegacy
+      ? "(chat_id = ? OR chat_id IS NULL)"
+      : "chat_id = ?"
+    : "1";
+
   const row = database.client
-    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
-    .get(id, cleanChatId, cleanChatId);
+    .prepare(`SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL AND ${chatCondition}`)
+    .get(id, ...(cleanChatId != null ? [cleanChatId] : []));
   return row ? mapTransactionRow(row) : null;
 }
 
-export async function getDeletedTransactionById(database, id, chatId = null) {
+export async function getDeletedTransactionById(database, id, chatId = null, { includeLegacy = false } = {}) {
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (database.kind === "postgres") {
+    const legacyCondition = includeLegacy && cleanChatId != null
+      ? database.client`(chat_id = ${cleanChatId} or chat_id is null)`
+      : cleanChatId != null
+        ? database.client`chat_id = ${cleanChatId}`
+        : database.client`true`;
+
     const rows = await database.client`
       select *
       from public.transactions
       where id = ${id} and deleted_at is not null
-        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
+        and ${legacyCondition}
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
+  const chatCondition = cleanChatId != null
+    ? includeLegacy
+      ? "(chat_id = ? OR chat_id IS NULL)"
+      : "chat_id = ?"
+    : "1";
+
   const row = database.client
-    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NOT NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
-    .get(id, cleanChatId, cleanChatId);
+    .prepare(`SELECT * FROM transactions WHERE id = ? AND deleted_at IS NOT NULL AND ${chatCondition}`)
+    .get(id, ...(cleanChatId != null ? [cleanChatId] : []));
   return row ? mapTransactionRow(row) : null;
 }
 
-export async function listTransactions(database, { limit = 20, offset = 0, from, to, chatId = null } = {}) {
+export async function listTransactions(database, { limit = 20, offset = 0, from, to, chatId = null, includeLegacy = false } = {}) {
   const safeLimit = clampInteger(limit, 1, 100);
   const safeOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (database.kind === "postgres") {
-    return listPostgresTransactions(database, { limit: safeLimit, offset: safeOffset, from, to, chatId: cleanChatId });
+    return listPostgresTransactions(database, { limit: safeLimit, offset: safeOffset, from, to, chatId: cleanChatId, includeLegacy });
   }
 
-  const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId });
+  const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId, includeLegacy });
   return database.client
     .prepare(
       `SELECT *
@@ -631,7 +655,7 @@ export async function listTransactions(database, { limit = 20, offset = 0, from,
     .map(mapTransactionRow);
 }
 
-export async function searchTransactions(database, query, { limit = 10, chatId = null } = {}) {
+export async function searchTransactions(database, query, { limit = 10, chatId = null, includeLegacy = false } = {}) {
   const safeLimit = clampInteger(limit, 1, 20);
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
   const keyword = String(query ?? "").trim();
@@ -642,12 +666,14 @@ export async function searchTransactions(database, query, { limit = 10, chatId =
 
   if (database.kind === "postgres") {
     const pattern = `%${keyword}%`;
+    const where = buildPostgresTransactionWhere(database.client, {
+      chatId: cleanChatId,
+      includeLegacy,
+    });
     const rows = await database.client`
       select *
       from public.transactions
-      where
-        deleted_at is null
-        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
+      ${where}
         and (
           note ilike ${pattern}
           or category ilike ${pattern}
@@ -662,13 +688,16 @@ export async function searchTransactions(database, query, { limit = 10, chatId =
   }
 
   const pattern = `%${keyword.toLowerCase()}%`;
+  const where = buildSqliteTransactionWhere({
+    chatId: cleanChatId,
+    includeLegacy,
+  });
+
   return database.client
     .prepare(
       `SELECT *
        FROM transactions
-       WHERE
-        deleted_at IS NULL
-        AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)
+       ${where.where}
         AND (
           lower(note) LIKE ?
           OR lower(category) LIKE ?
@@ -679,15 +708,15 @@ export async function searchTransactions(database, query, { limit = 10, chatId =
        ORDER BY id DESC
        LIMIT ?`,
     )
-    .all(cleanChatId, cleanChatId, pattern, pattern, pattern, pattern, pattern, safeLimit)
+    .all(...where.params, pattern, pattern, pattern, pattern, pattern, safeLimit)
     .map(mapTransactionRow);
 }
 
-export async function getSummary(database, { from, to, chatId = null } = {}) {
+export async function getSummary(database, { from, to, chatId = null, includeLegacy = false } = {}) {
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (database.kind === "postgres") {
-    const where = buildPostgresTransactionWhere(database.client, { from, to, chatId: cleanChatId });
+    const where = buildPostgresTransactionWhere(database.client, { from, to, chatId: cleanChatId, includeLegacy });
     const rows = await database.client`
       select
         coalesce(sum(case when type = 'income' then amount else 0 end), 0)::int as total_income,
@@ -699,7 +728,7 @@ export async function getSummary(database, { from, to, chatId = null } = {}) {
     return mapSummaryRow(rows[0]);
   }
 
-  const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId });
+  const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId, includeLegacy });
   const row = database.client
     .prepare(
       `SELECT
@@ -714,12 +743,12 @@ export async function getSummary(database, { from, to, chatId = null } = {}) {
   return mapSummaryRow(row);
 }
 
-export async function getCategorySummary(database, { from, to, limit = 8, chatId = null } = {}) {
+export async function getCategorySummary(database, { from, to, limit = 8, chatId = null, includeLegacy = false } = {}) {
   const safeLimit = clampInteger(limit, 1, 20);
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (database.kind === "postgres") {
-    const where = buildPostgresTransactionWhere(database.client, { from, to, chatId: cleanChatId });
+    const where = buildPostgresTransactionWhere(database.client, { from, to, chatId: cleanChatId, includeLegacy });
     const rows = await database.client`
       select
         category,
@@ -735,7 +764,7 @@ export async function getCategorySummary(database, { from, to, limit = 8, chatId
     return rows.map(mapCategorySummaryRow);
   }
 
-  const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId });
+  const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId, includeLegacy });
   return database.client
     .prepare(
       `SELECT
@@ -1447,7 +1476,7 @@ export async function listCategoryAliases(database, chatId) {
     .map(mapCategoryAliasRow);
 }
 
-export async function updateTransactionCategory(database, id, category, chatId = null) {
+export async function updateTransactionCategory(database, id, category, chatId = null, { includeLegacy = false } = {}) {
   const transactionId = Number.parseInt(id, 10);
   const cleanCategory = normalizeCategory(category);
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
@@ -1457,25 +1486,37 @@ export async function updateTransactionCategory(database, id, category, chatId =
   }
 
   if (database.kind === "postgres") {
+    const legacyCondition = includeLegacy && cleanChatId != null
+      ? database.client`(chat_id = ${cleanChatId} or chat_id is null)`
+      : cleanChatId != null
+        ? database.client`chat_id = ${cleanChatId}`
+        : database.client`true`;
+
     const rows = await database.client`
       update public.transactions
       set category = ${cleanCategory}, updated_at = now()
       where id = ${transactionId} and deleted_at is null
-        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
+        and ${legacyCondition}
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
+  const chatCondition = cleanChatId != null
+    ? includeLegacy
+      ? "(chat_id = ? OR chat_id IS NULL)"
+      : "chat_id = ?"
+    : "1";
+
   const now = new Date().toISOString();
   const result = database.client
-    .prepare("UPDATE transactions SET category = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
-    .run(cleanCategory, now, transactionId, cleanChatId, cleanChatId);
+    .prepare(`UPDATE transactions SET category = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL AND ${chatCondition}`)
+    .run(cleanCategory, now, transactionId, ...(cleanChatId != null ? [cleanChatId] : []));
 
-  return result.changes > 0 ? getTransactionById(database, transactionId, cleanChatId) : null;
+  return result.changes > 0 ? getTransactionById(database, transactionId, cleanChatId, { includeLegacy }) : null;
 }
 
-export async function updateTransactionById(database, id, transaction, chatId = null) {
+export async function updateTransactionById(database, id, transaction, chatId = null, { includeLegacy = false } = {}) {
   const transactionId = Number.parseInt(id, 10);
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
@@ -1486,6 +1527,12 @@ export async function updateTransactionById(database, id, transaction, chatId = 
   const payload = normalizeTransactionInput(transaction);
 
   if (database.kind === "postgres") {
+    const legacyCondition = includeLegacy && cleanChatId != null
+      ? database.client`(chat_id = ${cleanChatId} or chat_id is null)`
+      : cleanChatId != null
+        ? database.client`chat_id = ${cleanChatId}`
+        : database.client`true`;
+
     const rows = await database.client`
       update public.transactions
       set
@@ -1503,11 +1550,17 @@ export async function updateTransactionById(database, id, transaction, chatId = 
         confidence = ${payload.confidence},
         updated_at = now()
       where id = ${transactionId} and deleted_at is null
-        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
+        and ${legacyCondition}
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
+
+  const chatCondition = cleanChatId != null
+    ? includeLegacy
+      ? "(chat_id = ? OR chat_id IS NULL)"
+      : "chat_id = ?"
+    : "1";
 
   const now = new Date().toISOString();
   const result = database.client
@@ -1516,7 +1569,7 @@ export async function updateTransactionById(database, id, transaction, chatId = 
        SET type = ?, amount = ?, note = ?, category = ?, wallet = ?, payment_method = ?,
            date_kind = ?, date_value = ?, tags_json = ?, raw_amount = ?,
            original = ?, confidence = ?, updated_at = ?
-       WHERE id = ? AND deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)`,
+       WHERE id = ? AND deleted_at IS NULL AND ${chatCondition}`,
     )
     .run(
       payload.type,
@@ -1533,24 +1586,29 @@ export async function updateTransactionById(database, id, transaction, chatId = 
       payload.confidence,
       now,
       transactionId,
-      cleanChatId,
-      cleanChatId,
+      ...(cleanChatId != null ? [cleanChatId] : []),
     );
 
-  return result.changes > 0 ? getTransactionById(database, transactionId, cleanChatId) : null;
+  return result.changes > 0 ? getTransactionById(database, transactionId, cleanChatId, { includeLegacy }) : null;
 }
 
-export async function deleteLastTransaction(database, chatId = null) {
+export async function deleteLastTransaction(database, chatId = null, { includeLegacy = false } = {}) {
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (database.kind === "postgres") {
+    const legacyCondition = includeLegacy && cleanChatId != null
+      ? database.client`(chat_id = ${cleanChatId} or chat_id is null)`
+      : cleanChatId != null
+        ? database.client`chat_id = ${cleanChatId}`
+        : database.client`true`;
+
     const rows = await database.client`
       update public.transactions
       set deleted_at = now(), updated_at = now()
       where id = (
         select id from public.transactions
         where deleted_at is null
-          and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
+          and ${legacyCondition}
         order by id desc
         limit 1
       )
@@ -1559,9 +1617,15 @@ export async function deleteLastTransaction(database, chatId = null) {
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
+  const chatCondition = cleanChatId != null
+    ? includeLegacy
+      ? "(chat_id = ? OR chat_id IS NULL)"
+      : "chat_id = ?"
+    : "1";
+
   const row = database.client
-    .prepare("SELECT * FROM transactions WHERE deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL) ORDER BY id DESC LIMIT 1")
-    .get(cleanChatId, cleanChatId);
+    .prepare(`SELECT * FROM transactions WHERE deleted_at IS NULL AND ${chatCondition} ORDER BY id DESC LIMIT 1`)
+    .get(...(cleanChatId != null ? [cleanChatId] : []));
 
   if (!row) {
     return null;
@@ -1569,12 +1633,12 @@ export async function deleteLastTransaction(database, chatId = null) {
 
   const now = new Date().toISOString();
   database.client
-    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ? AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
-    .run(now, now, row.id, cleanChatId, cleanChatId);
-  return getDeletedTransactionById(database, row.id, cleanChatId);
+    .prepare(`UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ?`)
+    .run(now, now, row.id);
+  return getDeletedTransactionById(database, row.id, cleanChatId, { includeLegacy });
 }
 
-export async function deleteTransactionById(database, id, chatId = null) {
+export async function deleteTransactionById(database, id, chatId = null, { includeLegacy = false } = {}) {
   const transactionId = Number.parseInt(id, 10);
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
@@ -1583,19 +1647,31 @@ export async function deleteTransactionById(database, id, chatId = null) {
   }
 
   if (database.kind === "postgres") {
+    const legacyCondition = includeLegacy && cleanChatId != null
+      ? database.client`(chat_id = ${cleanChatId} or chat_id is null)`
+      : cleanChatId != null
+        ? database.client`chat_id = ${cleanChatId}`
+        : database.client`true`;
+
     const rows = await database.client`
       update public.transactions
       set deleted_at = now(), updated_at = now()
       where id = ${transactionId} and deleted_at is null
-        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
+        and ${legacyCondition}
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
+  const chatCondition = cleanChatId != null
+    ? includeLegacy
+      ? "(chat_id = ? OR chat_id IS NULL)"
+      : "chat_id = ?"
+    : "1";
+
   const row = database.client
-    .prepare("SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
-    .get(transactionId, cleanChatId, cleanChatId);
+    .prepare(`SELECT * FROM transactions WHERE id = ? AND deleted_at IS NULL AND ${chatCondition}`)
+    .get(transactionId, ...(cleanChatId != null ? [cleanChatId] : []));
 
   if (!row) {
     return null;
@@ -1603,12 +1679,12 @@ export async function deleteTransactionById(database, id, chatId = null) {
 
   const now = new Date().toISOString();
   database.client
-    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ? AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
-    .run(now, now, transactionId, cleanChatId, cleanChatId);
-  return getDeletedTransactionById(database, transactionId, cleanChatId);
+    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ?")
+    .run(now, now, transactionId);
+  return getDeletedTransactionById(database, transactionId, cleanChatId, { includeLegacy });
 }
 
-export async function restoreTransactionById(database, id, chatId = null) {
+export async function restoreTransactionById(database, id, chatId = null, { includeLegacy = false } = {}) {
   const transactionId = Number.parseInt(id, 10);
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
@@ -1617,33 +1693,51 @@ export async function restoreTransactionById(database, id, chatId = null) {
   }
 
   if (database.kind === "postgres") {
+    const legacyCondition = includeLegacy && cleanChatId != null
+      ? database.client`(chat_id = ${cleanChatId} or chat_id is null)`
+      : cleanChatId != null
+        ? database.client`chat_id = ${cleanChatId}`
+        : database.client`true`;
+
     const rows = await database.client`
       update public.transactions
       set deleted_at = null, updated_at = now()
       where id = ${transactionId} and deleted_at is not null
-        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
+        and ${legacyCondition}
       returning *
     `;
     return rows[0] ? mapTransactionRow(rows[0]) : null;
   }
 
+  const chatCondition = cleanChatId != null
+    ? includeLegacy
+      ? "(chat_id = ? OR chat_id IS NULL)"
+      : "chat_id = ?"
+    : "1";
+
   const now = new Date().toISOString();
   const result = database.client
-    .prepare("UPDATE transactions SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
-    .run(now, transactionId, cleanChatId, cleanChatId);
+    .prepare(`UPDATE transactions SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL AND ${chatCondition}`)
+    .run(now, transactionId, ...(cleanChatId != null ? [cleanChatId] : []));
 
-  return result.changes > 0 ? getTransactionById(database, transactionId, cleanChatId) : null;
+  return result.changes > 0 ? getTransactionById(database, transactionId, cleanChatId, { includeLegacy }) : null;
 }
 
-export async function clearAllTransactions(database, chatId = null) {
+export async function clearAllTransactions(database, chatId = null, { includeLegacy = false } = {}) {
   const cleanChatId = chatId == null ? null : normalizeChatId(chatId);
 
   if (database.kind === "postgres") {
+    const legacyCondition = includeLegacy && cleanChatId != null
+      ? database.client`(chat_id = ${cleanChatId} or chat_id is null)`
+      : cleanChatId != null
+        ? database.client`chat_id = ${cleanChatId}`
+        : database.client`true`;
+
     const rows = await database.client`
       update public.transactions
       set deleted_at = now(), updated_at = now()
       where deleted_at is null
-        and (${cleanChatId}::text is null or chat_id = ${cleanChatId} or chat_id is null)
+        and ${legacyCondition}
       returning id
     `;
     return {
@@ -1651,13 +1745,19 @@ export async function clearAllTransactions(database, chatId = null) {
     };
   }
 
+  const chatCondition = cleanChatId != null
+    ? includeLegacy
+      ? "(chat_id = ? OR chat_id IS NULL)"
+      : "chat_id = ?"
+    : "1";
+
   const row = database.client
-    .prepare("SELECT COUNT(*) AS count FROM transactions WHERE deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
-    .get(cleanChatId, cleanChatId);
+    .prepare(`SELECT COUNT(*) AS count FROM transactions WHERE deleted_at IS NULL AND ${chatCondition}`)
+    .get(...(cleanChatId != null ? [cleanChatId] : []));
   const now = new Date().toISOString();
   database.client
-    .prepare("UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL AND (? IS NULL OR chat_id = ? OR chat_id IS NULL)")
-    .run(now, now, cleanChatId, cleanChatId);
+    .prepare(`UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL AND ${chatCondition}`)
+    .run(now, now, ...(cleanChatId != null ? [cleanChatId] : []));
 
   return {
     deletedCount: Number(row.count),
@@ -1835,8 +1935,8 @@ export async function clearChatSessionPendingAction(database, chatId) {
   return getChatSession(database, chatId);
 }
 
-function listPostgresTransactions(database, { limit, offset, from, to, chatId }) {
-  const where = buildPostgresTransactionWhere(database.client, { from, to, chatId });
+function listPostgresTransactions(database, { limit, offset, from, to, chatId, includeLegacy = false }) {
+  const where = buildPostgresTransactionWhere(database.client, { from, to, chatId, includeLegacy });
   return database.client`
     select * from public.transactions
     ${where}
@@ -1862,11 +1962,15 @@ function buildPostgresPeriodWhere(sql, { from, to } = {}) {
   return sql``;
 }
 
-function buildPostgresTransactionWhere(sql, { from, to, chatId = null } = {}) {
+function buildPostgresTransactionWhere(sql, { from, to, chatId = null, includeLegacy = false } = {}) {
   const conditions = [sql`deleted_at is null`];
 
   if (chatId != null) {
-    conditions.push(sql`(chat_id = ${chatId} or chat_id is null)`);
+    if (includeLegacy) {
+      conditions.push(sql`(chat_id = ${chatId} or chat_id is null)`);
+    } else {
+      conditions.push(sql`chat_id = ${chatId}`);
+    }
   }
 
   if (from) {
@@ -2306,12 +2410,16 @@ function buildSqlitePeriodFilter({ from, to } = {}) {
   };
 }
 
-function buildSqliteTransactionWhere({ from, to, chatId = null } = {}) {
+function buildSqliteTransactionWhere({ from, to, chatId = null, includeLegacy = false } = {}) {
   const clauses = ["deleted_at IS NULL"];
   const params = [];
 
   if (chatId != null) {
-    clauses.push("(chat_id = ? OR chat_id IS NULL)");
+    if (includeLegacy) {
+      clauses.push("(chat_id = ? OR chat_id IS NULL)");
+    } else {
+      clauses.push("chat_id = ?");
+    }
     params.push(chatId);
   }
 

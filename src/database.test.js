@@ -233,8 +233,8 @@ describe("database", () => {
   it("stores budgets and calculates monthly progress", async () => {
     const database = await createTestDatabase();
     await saveTransactions(database, [
-      transaction({ amount: 450000, note: "makan", category: "food" }),
-      transaction({ amount: 50000, note: "bensin", category: "transport" }),
+      transaction({ amount: 450000, note: "makan", category: "food", chatId: 123 }),
+      transaction({ amount: 50000, note: "bensin", category: "transport", chatId: 123 }),
     ]);
     const food = await saveBudget(database, {
       chatId: 123,
@@ -262,8 +262,8 @@ describe("database", () => {
   it("supports global weekly budgets", async () => {
     const database = await createTestDatabase();
     await saveTransactions(database, [
-      transaction({ amount: 90000, note: "makan", category: "food" }),
-      transaction({ amount: 10000, note: "parkir", category: "transport" }),
+      transaction({ amount: 90000, note: "makan", category: "food", chatId: 123 }),
+      transaction({ amount: 10000, note: "parkir", category: "transport", chatId: 123 }),
     ]);
     await saveBudget(database, {
       chatId: 123,
@@ -322,8 +322,8 @@ describe("database", () => {
 
     await saveWallet(database, { chatId: 123, name: "cash" });
     await saveWallet(database, { chatId: 123, name: "bca" });
-    await saveTransaction(database, transaction({ type: "income", amount: 500000, note: "gaji", category: "income", wallet: "bca" }));
-    await saveTransaction(database, transaction({ amount: 50000, note: "makan", category: "food", wallet: "cash" }));
+    await saveTransaction(database, transaction({ type: "income", amount: 500000, note: "gaji", category: "income", wallet: "bca", chatId: 123 }));
+    await saveTransaction(database, transaction({ amount: 50000, note: "makan", category: "food", wallet: "cash", chatId: 123 }));
     await saveTransfer(database, { chatId: 123, fromWallet: "bca", toWallet: "cash", amount: 100000, note: "isi cash" });
 
     const wallets = await getWalletBalances(database, 123);
