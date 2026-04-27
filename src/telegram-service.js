@@ -97,7 +97,7 @@ export async function processTelegramUpdate({ database, update, token, allowedCh
     return { handled: false };
   }
 
-  const chatId = message.chat.id;
+  const chatId = String(message.chat.id);
   if (!isChatAllowed(chatId, allowedChatIds, env)) {
     if (chatId !== 0) {
       await sendTelegramMessage(token, chatId, "Bot ini hanya untuk pemilik.", { replyMarkup: mainKeyboard });

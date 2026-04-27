@@ -49,14 +49,25 @@ export default async function handler(req, res) {
     return;
   }
 
+  const update = parseRequestBody(req.body);
+  const message = update?.message;
+  const chatId = message?.chat?.id == null ? null : String(message.chat.id);
+  const textPreview = String(message?.text ?? "").trim().slice(0, 80);
+
   try {
     await ensureDatabaseReady();
-    const update = parseRequestBody(req.body);
     await processTelegramUpdate({ database, update, token, allowedChatIds });
     res.status(200).json({ ok: true });
   } catch (error) {
-    console.error("Telegram webhook error:", error);
-    res.status(500).json({ ok: false, error: "Webhook gagal diproses." });
+    console.error("Telegram webhook processing error:", {
+      updateId: update?.update_id ?? null,
+      chatId,
+      textPreview,
+      errorName: error?.name ?? "Error",
+      errorMessage: error?.message ?? String(error),
+      stack: String(error?.stack ?? "").split("\n").slice(0, 5).join("\n"),
+    });
+    res.status(200).json({ ok: true, acknowledged: true });
   }
 }
 
