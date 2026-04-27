@@ -1964,25 +1964,25 @@ function buildPostgresPeriodWhere(sql, { from, to } = {}) {
 
 // includeLegacy=true hanya untuk akses admin/kompat lama: ikutkan baris legacy chat_id is null saat query by chat_id.
 function buildPostgresTransactionWhere(sql, { from, to, chatId = null, includeLegacy = false } = {}) {
-  const conditions = [sql`deleted_at is null`];
+  let where = sql`where deleted_at is null`;
 
   if (chatId != null) {
     if (includeLegacy) {
-      conditions.push(sql`(chat_id = ${chatId} or chat_id is null)`);
+      where = sql`${where} and (chat_id = ${chatId} or chat_id is null)`;
     } else {
-      conditions.push(sql`chat_id = ${chatId}`);
+      where = sql`${where} and chat_id = ${chatId}`;
     }
   }
 
   if (from) {
-    conditions.push(sql`created_at >= ${from}`);
+    where = sql`${where} and created_at >= ${from}`;
   }
 
   if (to) {
-    conditions.push(sql`created_at < ${to}`);
+    where = sql`${where} and created_at < ${to}`;
   }
 
-  return sql`where ${sql(conditions, " and ")}`;
+  return where;
 }
 
 function migrateSqliteChatSessionsTable(database) {
