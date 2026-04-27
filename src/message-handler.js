@@ -1965,6 +1965,13 @@ async function validateAiTransactionCandidates(database, candidates, original, o
     if (!Number.isSafeInteger(amount) || amount <= 0 || !note || confidence < 0.60) {
       return {
         ok: false,
+        kind: "clarification",
+        command: "transaction_clarify",
+        pendingClarification: {
+          action: "transaction_clarify",
+          candidates: [{ ...candidate, original }],
+          originalMessage: original,
+        },
         reply: [
           "Transaksi belum cukup jelas.",
           "",

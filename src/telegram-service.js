@@ -12,6 +12,7 @@ import {
   setChatSessionPendingAction,
 } from "./database.js";
 import { handleMessage } from "./message-handler.js";
+import { parseInput } from "./parser.js";
 
 export const mainKeyboard = {
   keyboard: [
@@ -425,6 +426,7 @@ async function handlePendingTransactionClarification(database, token, chatId, te
   const candidates = Array.isArray(session?.pendingPayload?.candidates)
     ? session.pendingPayload.candidates
     : [];
+  const originalMessage = String(session?.pendingPayload?.originalMessage ?? "").trim();
 
   if (type === "cancel") {
     await clearChatSessionPendingAction(database, chatId);
@@ -438,8 +440,8 @@ async function handlePendingTransactionClarification(database, token, chatId, te
       chatId,
       [
         "Balas:",
-        "1. Pengeluaran",
-        "2. Pemasukan",
+        "1. Catat pengeluaran",
+        "2. Catat pemasukan",
         "3. Bukan transaksi",
         "",
         "Ketik /batal untuk batal.",
@@ -450,7 +452,7 @@ async function handlePendingTransactionClarification(database, token, chatId, te
     return { ok: false, kind: "transaction_clarification_pending" };
   }
 
-  if (candidates.length === 0) {
+  if (candidates.length === 0 && !originalMessage) {
     await clearChatSessionPendingAction(database, chatId);
     await sendTelegramMessage(
       token,
@@ -467,7 +469,21 @@ async function handlePendingTransactionClarification(database, token, chatId, te
   for (const candidate of candidates.slice(0, 10)) {
     const transaction = buildClarifiedTransaction(candidate, type);
 
+    if (!transaction && originalMessage) {
+      const parsed = parseInput(originalMessage, { chatId, forceType: type });
+
+      if (parsed?.ok && parsed?.kind === "transaction") {
+        transactions.push({
+          ...parsed.transaction,
+          type,
+          chatId,
+        });
+        continue;
+      }
+    }
+
     if (!transaction) {
+      await clearChatSessionPendingAction(database, chatId);
       await sendTelegramMessage(
         token,
         chatId,
@@ -479,6 +495,18 @@ async function handlePendingTransactionClarification(database, token, chatId, te
     }
 
     transactions.push(transaction);
+  }
+
+  if (transactions.length === 0) {
+    await clearChatSessionPendingAction(database, chatId);
+    await sendTelegramMessage(
+      token,
+      chatId,
+      "Tidak ada transaksi yang bisa dicatat. Kirim ulang dengan format yang jelas.",
+      { replyMarkup: mainKeyboard },
+    );
+
+    return { ok: false, kind: "transaction_clarification_empty" };
   }
 
   const saved = await saveTransactions(database, transactions.map((transaction) => ({ ...transaction, chatId })));

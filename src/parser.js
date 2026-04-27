@@ -322,7 +322,7 @@ export function parseTransactionLine(input, options = {}) {
   const combinedNote = [beforeAmount, afterAmount].filter(Boolean).join(" ");
   const metadata = extractMetadata(combinedNote);
   const note = cleanNote(metadata.note);
-  const type = detectTransactionType({
+  const type = options.forceType || detectTransactionType({
     defaultType: options.defaultType,
   });
 
