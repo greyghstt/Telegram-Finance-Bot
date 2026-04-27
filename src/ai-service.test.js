@@ -88,7 +88,7 @@ describe("ai service", () => {
     assert.equal(calls[0][0].model, "MiniMax-M2.7-highspeed");
     assert.equal(calls[0][0].temperature, 0.2);
     assert.equal(calls[0][0].max_tokens, 2500);
-    assert.equal(calls[0][1].timeout, 25000);
+    assert.equal(calls[0][1].timeout, 30000);
     assert.equal(result.profile, "deep");
     assert.equal(Number.isFinite(result.latencyMs), true);
     assert.match(calls[0][0].messages[0].content, /Bahasa Indonesia/);
@@ -234,7 +234,7 @@ describe("ai service", () => {
     assert.equal(result.candidates.length, 1);
     assert.equal(result.candidates[0].amount, 20000);
     assert.equal(calls[0][0].max_tokens, 700);
-    assert.equal(calls[0][1].timeout, 12000);
+    assert.equal(calls[0][1].timeout, 18000);
     assert.match(calls[0][0].messages[0].content, /Balas JSON valid saja/);
   });
 

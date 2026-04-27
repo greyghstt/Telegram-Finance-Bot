@@ -5,9 +5,9 @@ const DEFAULT_BASE_URL = "https://ai.sumopod.com/v1";
 const DEFAULT_MODEL = "MiniMax-M2.7-highspeed";
 const DEFAULT_TEMPERATURE = 0.2;
 const DEFAULT_MAX_TOKENS = 2500;
-const DEFAULT_TIMEOUT_MS = 25000;
+const DEFAULT_TIMEOUT_MS = 30000;
 const QUICK_MAX_TOKENS = 700;
-const QUICK_TIMEOUT_MS = 12000;
+const QUICK_TIMEOUT_MS = 18000;
 const PROFILE_DEEP = "deep";
 const PROFILE_QUICK = "quick";
 

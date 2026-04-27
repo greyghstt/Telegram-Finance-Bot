@@ -610,7 +610,7 @@ async function tryHandleAiIntent(database, message, options) {
     });
   });
 
-  if (!result.ok || Number(result.confidence ?? 0) < 0.65) {
+  if (!result.ok || Number(result.confidence ?? 0) < 0.55) {
     return null;
   }
 
@@ -1962,7 +1962,7 @@ async function validateAiTransactionCandidates(database, candidates, original, o
     const note = String(candidate?.note ?? "").trim();
     const category = normalizeAiCategory(candidate?.category, type, context);
 
-    if (!Number.isSafeInteger(amount) || amount <= 0 || !note || confidence < 0.75) {
+    if (!Number.isSafeInteger(amount) || amount <= 0 || !note || confidence < 0.60) {
       return {
         ok: false,
         reply: [
