@@ -725,7 +725,18 @@ export async function getSummary(database, { from, to, chatId = null, includeLeg
       from public.transactions
       ${where}
     `;
-    return mapSummaryRow(rows[0]);
+    const summary = mapSummaryRow(rows[0]);
+
+    if (!from && !to) {
+      const wallets = await listWallets(database, cleanChatId);
+      if (wallets.length > 0) {
+        const walletBalances = await getWalletBalances(database, cleanChatId);
+        const totalWalletBalance = walletBalances.reduce((sum, wallet) => sum + wallet.balance, 0);
+        summary.balance = totalWalletBalance;
+      }
+    }
+
+    return summary;
   }
 
   const where = buildSqliteTransactionWhere({ from, to, chatId: cleanChatId, includeLegacy });
@@ -740,7 +751,18 @@ export async function getSummary(database, { from, to, chatId = null, includeLeg
     )
     .get(...where.params);
 
-  return mapSummaryRow(row);
+  const summary = mapSummaryRow(row);
+
+  if (!from && !to) {
+    const wallets = await listWallets(database, cleanChatId);
+    if (wallets.length > 0) {
+      const walletBalances = await getWalletBalances(database, cleanChatId);
+      const totalWalletBalance = walletBalances.reduce((sum, wallet) => sum + wallet.balance, 0);
+      summary.balance = totalWalletBalance;
+    }
+  }
+
+  return summary;
 }
 
 export async function getCategorySummary(database, { from, to, limit = 8, chatId = null, includeLegacy = false } = {}) {

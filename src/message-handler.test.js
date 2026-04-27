@@ -168,7 +168,7 @@ describe("message handler", () => {
     assert.match(wallets.reply, /Bank: Rp\u00a050.230/);
   });
 
-  it("supports wallet balance adjustment without changing finance summary", async () => {
+  it("supports wallet balance adjustment and reflects in global balance", async () => {
     const database = await createTestDatabase();
 
     await handleMessage(database, "dompet tambah bank", { chatId: 123 });
@@ -178,7 +178,7 @@ describe("message handler", () => {
     const wallets = await handleMessage(database, "dompet", { chatId: 123 });
 
     assert.equal(adjusted.command, "wallet_balance_adjust");
-    assert.equal(balance.summary.balance, 0);
+    assert.equal(balance.summary.balance, 75000);
     assert.match(wallets.reply, /Bank: Rp\u00a075.000/);
   });
 
