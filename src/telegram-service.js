@@ -516,15 +516,34 @@ async function handlePendingWalletSelection(database, token, chatId, text, sessi
     return { ok: false, kind: "wallet_selection_missing" };
   }
 
-  const walletChoice = normalized === "tanpa dompet"
-    ? null
-    : wallets.find((wallet) => wallet.toLowerCase() === normalized);
+  const numericChoice = parseNumericChoice(text, wallets.length + 1);
+  let walletChoice = null;
 
-  if (normalized !== "tanpa dompet" && !walletChoice) {
+  if (numericChoice === "cancel") {
+    await clearChatSessionPendingAction(database, chatId);
+    await sendTelegramMessage(token, chatId, "Dibatalkan.", { replyMarkup: mainKeyboard });
+    return { ok: true, kind: "wallet_selection_cancelled" };
+  }
+
+  if (Number.isSafeInteger(numericChoice)) {
+    if (numericChoice >= 1 && numericChoice <= wallets.length) {
+      walletChoice = wallets[numericChoice - 1];
+    } else if (numericChoice === wallets.length + 1) {
+      walletChoice = null;
+    }
+  } else if (normalized === "tanpa dompet") {
+    walletChoice = null;
+  } else {
+    walletChoice = wallets.find((wallet) => wallet.toLowerCase() === normalized);
+  }
+
+  if (walletChoice === undefined) {
+    const walletOptions = wallets.map((wallet, index) => `${index + 1}. ${wallet}`);
+    const noWalletOption = `${wallets.length + 1}. Tanpa dompet`;
     await sendTelegramMessage(
       token,
       chatId,
-      ["Pilih dompet atau ketik: tanpa dompet", "", ...wallets.map((wallet) => `- ${wallet}`), "/batal"].join("\n"),
+      ["Pilih dompet dengan angka atau nama:", "", "Balas:", ...walletOptions, noWalletOption, "", "Atau ketik /batal"].join("\n"),
       { replyMarkup: mainKeyboard },
     );
     return { ok: false, kind: "wallet_selection_pending" };

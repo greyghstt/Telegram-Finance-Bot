@@ -2052,6 +2052,9 @@ function buildWalletActionClarificationResponse(database, originalText, intent, 
 
 function buildWalletSelectionClarificationResponse(wallets, transaction, options) {
   void options;
+  const walletOptions = wallets.map((wallet, index) => `${index + 1}. ${wallet}`);
+  const noWalletOption = `${wallets.length + 1}. Tanpa dompet`;
+
   return {
     ok: true,
     kind: "clarification",
@@ -2066,9 +2069,11 @@ function buildWalletSelectionClarificationResponse(wallets, transaction, options
       "",
       `${formatRupiah(transaction.amount)} ${transaction.note}`,
       "",
-      ...wallets.map((wallet) => `- ${wallet}`),
-      "- tanpa dompet",
-      "/batal",
+      "Balas:",
+      ...walletOptions,
+      noWalletOption,
+      "",
+      "Atau ketik /batal",
     ].join("\n"),
   };
 }
