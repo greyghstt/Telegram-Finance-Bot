@@ -4,13 +4,14 @@ import { execFileSync } from "node:child_process";
 
 const root = process.cwd();
 const patterns = [
-  /s[k]-[A-Za-z0-9_-]{20,}/g,
-  /TELEGRAM_BOT_TOKEN=.*:A[A]/g,
-  /DATABASE_URL=postgresq[l]/g,
-  /postgresql:\/\/postgre[s]/g,
-  /13336512[5]7/g,
-  /85736275[6]8/g,
-  /AAE[f]/g,
+  /\b\d{8,12}:AA[A-Za-z0-9_-]{30,}\b/g,
+  /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}_[A-Za-z0-9_]{20,}\b/g,
+  /\bsk-[A-Za-z0-9_-]{16,}\b/g,
+  /\b[A-Za-z0-9_-]*api[_-]?key[A-Za-z0-9_-]*\s*=\s*['\"]?(?!your_|example|<|$)[A-Za-z0-9][A-Za-z0-9_.-]{12,}/gi,
+  /\b(?:DATABASE_URL|POSTGRES(?:QL)?_URL)\s*=\s*['\"]?postgres(?:ql)?:\/\/(?!example\b|localhost\b|127\.0\.0\.1\b)[^\s'\"]+/gi,
+  /\bpostgres(?:ql)?:\/\/(?!example\b|localhost\b|127\.0\.0\.1\b)[^\s'\"]*:[^\s'\"]+@[^\s'\"]+/gi,
+  /\b(?:ADMIN_API_TOKEN|TELEGRAM_WEBHOOK_SECRET|AI_API_KEY)\s*=\s*['\"]?(?!your_|example|<|$)[A-Za-z0-9][A-Za-z0-9_.-]{16,}/g,
 ];
 
 const findings = [];
