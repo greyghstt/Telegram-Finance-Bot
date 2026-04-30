@@ -262,7 +262,7 @@ function telegramUrl(token, method) {
   return `https://api.telegram.org/bot${token}/${method}`;
 }
 
-async function postTelegram(token, method, payload) {
+export async function postTelegram(token, method, payload) {
   const response = await fetch(telegramUrl(token, method), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
