@@ -49,7 +49,6 @@ Telegram-Finance-Bot/
   api/telegram/webhook.js
   docs/
     LOCAL_TESTING.md
-    PROJECT_PLAN.md
     RUNBOOK.md
   scripts/
     backup-csv.js
@@ -86,7 +85,7 @@ PORT=3000
 DATABASE_PATH=data/telegram-finance-bot.sqlite
 DATABASE_URL=
 TELEGRAM_BOT_TOKEN=your_new_botfather_token
-TELEGRAM_ALLOWED_CHAT_IDS=123456789
+TELEGRAM_ALLOWED_CHAT_IDS=your_telegram_chat_id
 TELEGRAM_WEBHOOK_URL=
 TELEGRAM_WEBHOOK_SECRET=
 ADMIN_API_TOKEN=
@@ -577,7 +576,6 @@ Invoke-RestMethod `
 ## Maintenance
 
 - Debugging and rollback guide: [docs/RUNBOOK.md](./docs/RUNBOOK.md).
-- Project plan: [docs/PROJECT_PLAN.md](./docs/PROJECT_PLAN.md).
 - Local testing guide: [docs/LOCAL_TESTING.md](./docs/LOCAL_TESTING.md).
 
 ## Next Development Direction
