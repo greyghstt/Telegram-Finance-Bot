@@ -16,3 +16,13 @@ npm-debug.log*
 AGENTS.md
 CLAUDE.md
 .claude/
+# Local agent/tool runtime and generated artifacts
+.serena/
+.sdd/
+.cocoindex_code/
+stacklit.json
+stacklit.html
+DEPENDENCIES.md
+bernstein.yaml
+templates/
+.agent-reports/
